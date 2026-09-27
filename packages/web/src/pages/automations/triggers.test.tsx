@@ -200,6 +200,7 @@ describe('Trigger bindings hub', () => {
             request.url.endsWith('/trigger-bindings/tb_github_issue/disable')
         ) === true
     )
+    await waitFor(() => container.querySelector('[data-testid="automation-status-disabled"]') !== null)
     expect(container.querySelector('[data-testid="automation-status-disabled"]')).not.toBeNull()
 
     await clickButtonWithText(container, 'Enable')
@@ -212,6 +213,7 @@ describe('Trigger bindings hub', () => {
             request.url.endsWith('/trigger-bindings/tb_github_issue/enable')
         ) === true
     )
+    await waitFor(() => container.querySelector('[data-testid="automation-status-enabled"]') !== null)
     expect(container.querySelector('[data-testid="automation-status-enabled"]')).not.toBeNull()
   }, 20000)
 
