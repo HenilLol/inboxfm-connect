@@ -540,4 +540,48 @@ describe('AppConnection CE API', () => {
             expect(stillExists).not.toBeNull()
         })
     })
+
+    describeWithAuth('POST /v1/connections/:id (Update)', () => app!, (setup) => {
+        it('should update connection display name', async () => {
+            const ctx = await setup()
+
+            const mockPiece = createMockPieceMetadata({
+                platformId: ctx.platform.id,
+                packageType: PackageType.REGISTRY,
+                pieceType: PieceType.OFFICIAL,
+            })
+            await db.save('integration_metadata', mockPiece)
+            pieceMetadataService(mockLog).getOrThrow = vi.fn().mockResolvedValue(mockPiece)
+
+            const createResponse = await ctx.post('/v1/connections', {
+                externalId: 'test-ce-update-connection',
+                displayName: 'CE Original Name',
+                pieceName: mockPiece.name,
+                projectId: ctx.project.id,
+                type: AppConnectionType.SECRET_TEXT,
+                value: { type: AppConnectionType.SECRET_TEXT, secret_text: 's' },
+                pieceVersion: mockPiece.version,
+            })
+            const connectionId = createResponse?.json().id
+
+            const response = await ctx.post(`/v1/connections/${connectionId}`, {
+                displayName: 'CE Updated Name',
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(response?.json().displayName).toBe('CE Updated Name')
+        })
+
+        it('should return 404 for non-existent connection', async () => {
+            const ctx = await setup()
+            const nonExistentId = apId()
+
+            const response = await ctx.post(`/v1/connections/${nonExistentId}`, {
+                displayName: 'Non-existent Name',
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.NOT_FOUND)
+            expect(response?.json().code).toBe('ENTITY_NOT_FOUND')
+        })
+    })
 })
