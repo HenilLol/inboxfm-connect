@@ -163,7 +163,19 @@ function _validateImportBranches(trigger: FlowTrigger): void {
             const routerAction = step as RouterAction
             for (const branch of routerAction.settings?.branches ?? []) {
                 if (branch.branchType === BranchExecutionType.CONDITION) {
-                    for (const conditionGroup of branch.conditions ?? []) {
+                    if (
+                        !branch.conditions ||
+                        branch.conditions.length === 0 ||
+                        branch.conditions.every((group) => !group || group.length === 0)
+                    ) {
+                        throw new ActivepiecesError({
+                            code: ErrorCode.FLOW_OPERATION_INVALID,
+                            params: {
+                                message: `Invalid branch condition in step '${step.displayName || step.name}': condition values must not be empty.`,
+                            },
+                        })
+                    }
+                    for (const conditionGroup of branch.conditions) {
                         for (const condition of conditionGroup) {
                             const parseResult = ValidBranchCondition.safeParse(condition)
                             if (!parseResult.success) {

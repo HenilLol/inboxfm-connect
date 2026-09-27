@@ -4,7 +4,10 @@ import {
     BranchCondition,
     BranchExecutionType,
     BranchOperator,
+    DraftBranchCondition,
+    emptyCondition,
     FlowActionType,
+    LoopOnItemsAction,
     RouterAction,
     RouterExecutionType,
     ValidBranchCondition,
@@ -39,15 +42,15 @@ describe('BranchCondition and Flow Import Branch Validation (Issue #168)', () =>
     }
 
     it('BranchCondition schema rejects empty condition values via ValidBranchCondition', () => {
-        const emptyCondition = {
+        const empty = {
             firstValue: '',
             secondValue: 'expected_val',
             operator: BranchOperator.TEXT_CONTAINS,
         }
-        const parseResult = ValidBranchCondition.safeParse(emptyCondition)
+        const parseResult = ValidBranchCondition.safeParse(empty)
         expect(parseResult.success).toBe(false)
 
-        const deprecatedResult = BranchCondition.safeParse(emptyCondition)
+        const deprecatedResult = BranchCondition.safeParse(empty)
         expect(deprecatedResult.success).toBe(false)
     })
 
@@ -61,7 +64,29 @@ describe('BranchCondition and Flow Import Branch Validation (Issue #168)', () =>
         expect(parseResult.success).toBe(true)
     })
 
-    it('AddBranchRequest validates conditions with ValidBranchCondition', () => {
+    it('ValidBranchCondition accepts single-value operators without secondValue', () => {
+        const singleValueCondition = {
+            firstValue: '{{ steps.trigger.body.items }}',
+            operator: BranchOperator.EXISTS,
+        }
+        const parseResult = ValidBranchCondition.safeParse(singleValueCondition)
+        expect(parseResult.success).toBe(true)
+
+        const emptyFirstVal = {
+            firstValue: '',
+            operator: BranchOperator.EXISTS,
+        }
+        expect(ValidBranchCondition.safeParse(emptyFirstVal).success).toBe(false)
+    })
+
+    it('DraftBranchCondition accepts unconfigured scaffold emptyCondition template', () => {
+        const parseResult = DraftBranchCondition.safeParse(emptyCondition)
+        expect(parseResult.success).toBe(true)
+        expect(emptyCondition.firstValue).toBe('')
+        expect(emptyCondition.secondValue).toBe('')
+    })
+
+    it('AddBranchRequest validates conditions with ValidBranchCondition or defaults to draft scaffold', () => {
         const validRequest = {
             stepName: 'step_router',
             branchIndex: 0,
@@ -78,6 +103,7 @@ describe('BranchCondition and Flow Import Branch Validation (Issue #168)', () =>
         }
         expect(AddBranchRequest.safeParse(validRequest).success).toBe(true)
 
+        // Explicit empty conditions are rejected
         const invalidRequest = {
             stepName: 'step_router',
             branchIndex: 0,
@@ -93,6 +119,14 @@ describe('BranchCondition and Flow Import Branch Validation (Issue #168)', () =>
             ],
         }
         expect(AddBranchRequest.safeParse(invalidRequest).success).toBe(false)
+
+        // Omitting conditions is allowed for draft authoring
+        const draftRequest = {
+            stepName: 'step_router',
+            branchIndex: 0,
+            branchName: 'Branch 1',
+        }
+        expect(AddBranchRequest.safeParse(draftRequest).success).toBe(true)
     })
 
     it('IMPORT_FLOW throws ActivepiecesError when an imported router contains empty conditions', () => {
@@ -139,13 +173,7 @@ describe('BranchCondition and Flow Import Branch Validation (Issue #168)', () =>
             },
         }
 
-        expect(() =>
-            flowOperations.apply(mockFlowVersion, {
-                type: FlowOperationType.IMPORT_FLOW,
-                request: importRequest,
-            }),
-        ).toThrowError(ActivepiecesError)
-
+        let capturedError: unknown
         try {
             flowOperations.apply(mockFlowVersion, {
                 type: FlowOperationType.IMPORT_FLOW,
@@ -153,14 +181,137 @@ describe('BranchCondition and Flow Import Branch Validation (Issue #168)', () =>
             })
         }
         catch (err) {
-            expect(err).toBeInstanceOf(ActivepiecesError)
-            const apErr = err as ActivepiecesError
-            expect(apErr.error.code).toBe(ErrorCode.FLOW_OPERATION_INVALID)
-            expect(apErr.error.params.message).toContain('condition values must not be empty')
+            capturedError = err
         }
+        expect(capturedError).toBeInstanceOf(ActivepiecesError)
+        const apErr = capturedError as ActivepiecesError
+        expect(apErr.error.code).toBe(ErrorCode.FLOW_OPERATION_INVALID)
+        expect(apErr.error.params.message).toContain('condition values must not be empty')
     })
 
-    it('IMPORT_FLOW successfully imports a flow when router conditions are valid', () => {
+    it('IMPORT_FLOW throws ActivepiecesError when a CONDITION branch has missing or empty conditions array', () => {
+        const routerWithEmptyConditionsArray: RouterAction = {
+            name: 'step_router',
+            displayName: 'Router Step',
+            type: FlowActionType.ROUTER,
+            valid: true,
+            lastUpdatedDate: '2026-09-27T00:00:00.000Z',
+            settings: {
+                executionType: RouterExecutionType.EXECUTE_FIRST_MATCH,
+                branches: [
+                    {
+                        branchType: BranchExecutionType.CONDITION,
+                        branchName: 'Branch Without Conditions',
+                        conditions: [],
+                    },
+                ],
+            },
+            children: [null],
+        }
+
+        const importRequest: ImportFlowRequest = {
+            displayName: 'Empty Conditions Array Flow',
+            schemaVersion: '22',
+            notes: null,
+            trigger: {
+                name: 'trigger',
+                displayName: 'Select a Trigger',
+                type: FlowTriggerType.EMPTY,
+                valid: true,
+                lastUpdatedDate: '2026-09-27T00:00:00.000Z',
+                settings: {},
+                nextAction: routerWithEmptyConditionsArray,
+            },
+        }
+
+        let capturedError: unknown
+        try {
+            flowOperations.apply(mockFlowVersion, {
+                type: FlowOperationType.IMPORT_FLOW,
+                request: importRequest,
+            })
+        }
+        catch (err) {
+            capturedError = err
+        }
+        expect(capturedError).toBeInstanceOf(ActivepiecesError)
+        const apErr = capturedError as ActivepiecesError
+        expect(apErr.error.code).toBe(ErrorCode.FLOW_OPERATION_INVALID)
+        expect(apErr.error.params.message).toContain('condition values must not be empty')
+    })
+
+    it('IMPORT_FLOW throws ActivepiecesError when a nested router inside a loop has invalid conditions', () => {
+        const nestedRouterAction: RouterAction = {
+            name: 'nested_router',
+            displayName: 'Nested Router',
+            type: FlowActionType.ROUTER,
+            valid: true,
+            lastUpdatedDate: '2026-09-27T00:00:00.000Z',
+            settings: {
+                executionType: RouterExecutionType.EXECUTE_FIRST_MATCH,
+                branches: [
+                    {
+                        branchType: BranchExecutionType.CONDITION,
+                        branchName: 'Nested Invalid Branch',
+                        conditions: [
+                            [
+                                {
+                                    firstValue: '',
+                                    secondValue: 'val',
+                                    operator: BranchOperator.TEXT_CONTAINS,
+                                },
+                            ],
+                        ],
+                    },
+                ],
+            },
+            children: [null],
+        }
+
+        const loopAction: LoopOnItemsAction = {
+            name: 'step_loop',
+            displayName: 'Loop Step',
+            type: FlowActionType.LOOP_ON_ITEMS,
+            valid: true,
+            lastUpdatedDate: '2026-09-27T00:00:00.000Z',
+            settings: {
+                items: '{{ steps.trigger.items }}',
+            },
+            firstLoopAction: nestedRouterAction,
+        }
+
+        const importRequest: ImportFlowRequest = {
+            displayName: 'Nested Router Flow',
+            schemaVersion: '22',
+            notes: null,
+            trigger: {
+                name: 'trigger',
+                displayName: 'Select a Trigger',
+                type: FlowTriggerType.EMPTY,
+                valid: true,
+                lastUpdatedDate: '2026-09-27T00:00:00.000Z',
+                settings: {},
+                nextAction: loopAction,
+            },
+        }
+
+        let capturedError: unknown
+        try {
+            flowOperations.apply(mockFlowVersion, {
+                type: FlowOperationType.IMPORT_FLOW,
+                request: importRequest,
+            })
+        }
+        catch (err) {
+            capturedError = err
+        }
+        expect(capturedError).toBeInstanceOf(ActivepiecesError)
+        const apErr = capturedError as ActivepiecesError
+        expect(apErr.error.code).toBe(ErrorCode.FLOW_OPERATION_INVALID)
+        expect(apErr.error.params.message).toContain('Nested Router')
+    })
+
+    it('IMPORT_FLOW successfully imports a flow when router conditions are valid and preserves branches', () => {
         const validRouterAction: RouterAction = {
             name: 'step_router',
             displayName: 'Router Step',
@@ -211,5 +362,151 @@ describe('BranchCondition and Flow Import Branch Validation (Issue #168)', () =>
 
         expect(updated.displayName).toBe('Valid Imported Flow')
         expect(updated.trigger.nextAction?.name).toBe('step_router')
+        const router = updated.trigger.nextAction as RouterAction
+        expect(router.settings.branches.length).toBe(1)
+        expect(router.settings.branches[0].branchName).toBe('Valid Branch')
+        expect(router.settings.branches[0].conditions?.[0]?.[0]?.firstValue).toBe('{{ steps.trigger.data }}')
+        expect(router.settings.branches[0].conditions?.[0]?.[0]?.secondValue).toBe('expected')
+    })
+
+    it('ImportFlowRequest schema parse succeeds for draft router while import validation rejects it with ActivepiecesError', () => {
+        const draftRouterAction = {
+            name: 'step_router',
+            displayName: 'Router Step',
+            type: FlowActionType.ROUTER,
+            valid: true,
+            lastUpdatedDate: '2026-09-27T00:00:00.000Z',
+            settings: {
+                executionType: RouterExecutionType.EXECUTE_FIRST_MATCH,
+                branches: [
+                    {
+                        branchType: BranchExecutionType.CONDITION,
+                        branchName: 'Draft Branch',
+                        conditions: [
+                            [emptyCondition],
+                        ],
+                    },
+                ],
+            },
+            children: [null],
+        }
+
+        const rawRequest = {
+            displayName: 'Draft Router Flow',
+            schemaVersion: '22',
+            notes: null,
+            trigger: {
+                name: 'trigger',
+                displayName: 'Select a Trigger',
+                type: FlowTriggerType.EMPTY,
+                valid: true,
+                lastUpdatedDate: '2026-09-27T00:00:00.000Z',
+                settings: {},
+                nextAction: draftRouterAction,
+            },
+        }
+
+        // Schema parsing at HTTP boundary must succeed without raw ZodError
+        const parseResult = ImportFlowRequest.safeParse(rawRequest)
+        expect(parseResult.success).toBe(true)
+
+        // But operations layer rejects it with friendly ActivepiecesError
+        let capturedError: unknown
+        try {
+            flowOperations.apply(mockFlowVersion, {
+                type: FlowOperationType.IMPORT_FLOW,
+                request: parseResult.data!,
+            })
+        }
+        catch (err) {
+            capturedError = err
+        }
+        expect(capturedError).toBeInstanceOf(ActivepiecesError)
+        const apErr = capturedError as ActivepiecesError
+        expect(apErr.error.code).toBe(ErrorCode.FLOW_OPERATION_INVALID)
+        expect(apErr.error.params.message).toContain('condition values must not be empty')
+    })
+
+    it('ADD_BRANCH with omitted conditions creates draft scaffold; export->import round-trip rejects unconfigured draft and accepts populated branch', () => {
+        const flowWithRouter: FlowVersion = {
+            ...mockFlowVersion,
+            trigger: {
+                ...mockFlowVersion.trigger,
+                nextAction: {
+                    name: 'step_router',
+                    displayName: 'Router Step',
+                    type: FlowActionType.ROUTER,
+                    valid: true,
+                    lastUpdatedDate: '2026-09-27T00:00:00.000Z',
+                    settings: {
+                        executionType: RouterExecutionType.EXECUTE_FIRST_MATCH,
+                        branches: [],
+                    },
+                    children: [],
+                },
+            },
+        }
+
+        // 1. Add branch without conditions -> creates draft branch with emptyCondition scaffold
+        const withBranch = flowOperations.apply(flowWithRouter, {
+            type: FlowOperationType.ADD_BRANCH,
+            request: {
+                stepName: 'step_router',
+                branchIndex: 0,
+                branchName: 'New Branch',
+            },
+        })
+
+        const routerAction = withBranch.trigger.nextAction as RouterAction
+        expect(routerAction.settings.branches.length).toBe(1)
+        expect(routerAction.settings.branches[0].conditions).toEqual([[emptyCondition]])
+
+        // 2. Exporting that draft flow and attempting to import without filling conditions fails validation
+        const exportDraftPayload: ImportFlowRequest = {
+            displayName: withBranch.displayName,
+            schemaVersion: withBranch.schemaVersion,
+            notes: withBranch.notes,
+            trigger: withBranch.trigger,
+        }
+
+        let importError: unknown
+        try {
+            flowOperations.apply(mockFlowVersion, {
+                type: FlowOperationType.IMPORT_FLOW,
+                request: exportDraftPayload,
+            })
+        }
+        catch (err) {
+            importError = err
+        }
+        expect(importError).toBeInstanceOf(ActivepiecesError)
+        expect((importError as ActivepiecesError).error.code).toBe(ErrorCode.FLOW_OPERATION_INVALID)
+
+        // 3. Once populated with valid condition values, export->import succeeds
+        const populatedTrigger = JSON.parse(JSON.stringify(withBranch.trigger))
+        populatedTrigger.nextAction.settings.branches[0].conditions = [
+            [
+                {
+                    firstValue: 'status',
+                    secondValue: 'active',
+                    operator: BranchOperator.TEXT_EXACTLY_MATCHES,
+                    caseSensitive: false,
+                },
+            ],
+        ]
+
+        const populatedImport = flowOperations.apply(mockFlowVersion, {
+            type: FlowOperationType.IMPORT_FLOW,
+            request: {
+                displayName: 'Populated Flow',
+                schemaVersion: '22',
+                notes: null,
+                trigger: populatedTrigger,
+            },
+        })
+
+        const importedRouter = populatedImport.trigger.nextAction as RouterAction
+        expect(importedRouter.settings.branches.length).toBe(1)
+        expect(importedRouter.settings.branches[0].conditions?.[0]?.[0]?.firstValue).toBe('status')
     })
 })

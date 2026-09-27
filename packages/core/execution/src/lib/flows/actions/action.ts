@@ -235,8 +235,12 @@ function buildBranchConditionValid(addMinLength: boolean) {
 export const ValidBranchCondition = buildBranchConditionValid(true)
 export type ValidBranchCondition = z.infer<typeof ValidBranchCondition>
 
+export const DraftBranchCondition = buildBranchConditionValid(false)
+export type DraftBranchCondition = z.infer<typeof DraftBranchCondition>
+
 /**
  * @deprecated Use `ValidBranchCondition` instead. The lax `BranchCondition` schema allowed empty condition values that fail builder validation.
+ * TODO(engine): Remove BranchCondition in next major release after migrating all consumers to ValidBranchCondition.
  */
 export const BranchCondition = ValidBranchCondition
 export type BranchCondition = ValidBranchCondition
@@ -274,13 +278,18 @@ export const RouterBranchesSchema = (addMinLength = true) =>
 
 export const RouterActionSettings = z.object({
     ...commonActionSettings,
+    branches: RouterBranchesSchema(false),
+    executionType: z.nativeEnum(RouterExecutionType),
+})
+
+export const RouterActionSettingsWithValidation = z.object({
+    ...commonActionSettings,
     branches: RouterBranchesSchema(true),
     executionType: z.nativeEnum(RouterExecutionType),
 })
 
-export const RouterActionSettingsWithValidation = RouterActionSettings
-
 export type RouterActionSettings = z.infer<typeof RouterActionSettings>
+export type RouterActionSettingsWithValidation = z.infer<typeof RouterActionSettingsWithValidation>
 
 
 
@@ -372,7 +381,11 @@ export type CodeAction = BaseActionProps & {
 }
 
 
-export const emptyCondition: ValidBranchCondition = {
+/**
+ * Initial empty condition template used as a placeholder when creating a new branch in the canvas.
+ * Note: This represents an unconfigured draft state and will not pass ValidBranchCondition until populated.
+ */
+export const emptyCondition: DraftBranchCondition = {
     firstValue: '',
     secondValue: '',
     operator: BranchOperator.TEXT_CONTAINS,

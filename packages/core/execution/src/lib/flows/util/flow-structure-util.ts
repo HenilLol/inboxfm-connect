@@ -1,5 +1,5 @@
 import { ActivepiecesError, ErrorCode, isNil } from '@inboxfm-connect/core-utils'
-import { BranchExecutionType, emptyCondition, FlowAction, FlowActionType, ValidBranchCondition } from '../actions/action'
+import { BranchExecutionType, DraftBranchCondition, emptyCondition, FlowAction, FlowActionType, ValidBranchCondition } from '../actions/action'
 import { FlowVersion } from '../flow-version'
 import { FlowTrigger, FlowTriggerType } from '../triggers/trigger'
 
@@ -157,7 +157,11 @@ function getStepNumber(trigger: FlowTrigger, stepName: string): number {
 }
 
 
-const createBranch = (branchName: string, conditions: ValidBranchCondition[][] | undefined) => {
+/**
+ * Create a branch configuration. When `conditions` is omitted, populates with `emptyCondition`
+ * as an initial draft scaffold awaiting user input in the flow builder.
+ */
+const createBranch = (branchName: string, conditions: (ValidBranchCondition | DraftBranchCondition)[][] | undefined) => {
     return {
         conditions: conditions ?? [[emptyCondition]],
         branchType: BranchExecutionType.CONDITION,
