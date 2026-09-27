@@ -108,4 +108,103 @@ describe('Sync-execution rate-limit tier (#164)', () => {
             expect(body.data).toBeDefined()
         }
     })
+
+    it('falls back to request.ip when x-real-ip header is omitted or empty', async () => {
+        for (let i = 0; i < SYNC_IP_MAX; i++) {
+            const res = await ctx.inject({
+                method: 'GET',
+                url: '/api/v1/executions',
+                query: { projectId: ctx.project.id },
+            })
+            expect(res.statusCode).toBe(StatusCodes.OK)
+        }
+
+        const throttled = await ctx.inject({
+            method: 'GET',
+            url: '/api/v1/executions',
+            query: { projectId: ctx.project.id },
+        })
+        expect(throttled.statusCode).toBe(StatusCodes.TOO_MANY_REQUESTS)
+        expect(throttled.headers['retry-after']).toBeDefined()
+    })
+
+    it('disables sync rate limiting when API_RATE_LIMIT_SYNC_ENABLED is false', async () => {
+        const ip = '198.51.100.60'
+        const originalGetBoolean = system.getBoolean.bind(system)
+        vi.spyOn(system, 'getBoolean').mockImplementation((prop: string) => {
+            if (prop === AppSystemProp.API_RATE_LIMIT_SYNC_ENABLED) {
+                return false
+            }
+            return originalGetBoolean(prop as AppSystemProp)
+        })
+
+        for (let i = 0; i < SYNC_IP_MAX + 5; i++) {
+            const res = await ctx.inject({
+                method: 'GET',
+                url: '/api/v1/executions',
+                query: { projectId: ctx.project.id },
+                headers: { 'x-real-ip': ip },
+            })
+            expect(res.statusCode).toBe(StatusCodes.OK)
+        }
+    })
+
+    it('applies sync rate limit to POST /v1/execute', async () => {
+        const ip = '198.51.100.70'
+
+        for (let i = 0; i < SYNC_IP_MAX; i++) {
+            const res = await ctx.inject({
+                method: 'POST',
+                url: '/api/v1/execute',
+                headers: { 'x-real-ip': ip },
+                body: {
+                    pieceName: '@inboxfm-connect/piece-slack',
+                    pieceVersion: '0.4.1',
+                    actionName: 'send_message',
+                    input: {},
+                    projectId: ctx.project.id,
+                },
+            })
+            expect(res.statusCode).not.toBe(StatusCodes.TOO_MANY_REQUESTS)
+        }
+
+        const throttled = await ctx.inject({
+            method: 'POST',
+            url: '/api/v1/execute',
+            headers: { 'x-real-ip': ip },
+            body: {
+                pieceName: '@inboxfm-connect/piece-slack',
+                pieceVersion: '0.4.1',
+                actionName: 'send_message',
+                input: {},
+                projectId: ctx.project.id,
+            },
+        })
+        expect(throttled.statusCode).toBe(StatusCodes.TOO_MANY_REQUESTS)
+        expect(throttled.headers['retry-after']).toBeDefined()
+    })
+
+    it('applies sync rate limit to AI provider routes', async () => {
+        const ip = '198.51.100.80'
+
+        for (let i = 0; i < SYNC_IP_MAX; i++) {
+            const res = await ctx.inject({
+                method: 'GET',
+                url: '/api/v1/ai-providers',
+                query: { projectId: ctx.project.id },
+                headers: { 'x-real-ip': ip },
+            })
+            expect(res.statusCode).toBe(StatusCodes.OK)
+        }
+
+        const throttled = await ctx.inject({
+            method: 'GET',
+            url: '/api/v1/ai-providers',
+            query: { projectId: ctx.project.id },
+            headers: { 'x-real-ip': ip },
+        })
+        expect(throttled.statusCode).toBe(StatusCodes.TOO_MANY_REQUESTS)
+        expect(throttled.headers['retry-after']).toBeDefined()
+    })
 })
+

@@ -29,6 +29,15 @@ function numberValidator(value: string | undefined) {
     return isValid ? true : 'Value must be a valid number'
 }
 
+function positiveIntegerValidator(value: string | undefined) {
+    if (isNil(value)) {
+        return 'Value must be a positive integer'
+    }
+    const num = Number(value)
+    const isValid = Number.isInteger(num) && num > 0
+    return isValid ? true : 'Value must be a positive integer'
+}
+
 function stringValidator(value: string) {
     const isValid = typeof value === 'string' && value.length > 0
     return isValid ? true : 'Value must be a non-empty string'
@@ -93,7 +102,7 @@ const systemPropValidators: {
     [AppSystemProp.API_RATE_LIMIT_AUTHN_ABUSE_MAX]: numberValidator,
     [AppSystemProp.API_RATE_LIMIT_AUTHN_ABUSE_WINDOW]: stringValidator,
     [AppSystemProp.API_RATE_LIMIT_SYNC_ENABLED]: booleanValidator,
-    [AppSystemProp.API_RATE_LIMIT_SYNC_MAX]: numberValidator,
+    [AppSystemProp.API_RATE_LIMIT_SYNC_MAX]: positiveIntegerValidator,
     [AppSystemProp.API_RATE_LIMIT_SYNC_WINDOW]: stringValidator,
     [AppSystemProp.API_SIGN_IN_EMAIL_THROTTLE_ENABLED]: booleanValidator,
     [AppSystemProp.API_SIGN_IN_EMAIL_THROTTLE_MAX_ATTEMPTS]: numberValidator,

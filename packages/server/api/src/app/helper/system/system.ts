@@ -42,6 +42,10 @@ const systemPropDefaultValues: Partial<Record<SystemProp, string>> = {
     [AppSystemProp.API_SIGN_IN_EMAIL_THROTTLE_MAX_ATTEMPTS]: '5',
     [AppSystemProp.API_SIGN_IN_EMAIL_THROTTLE_WINDOW_SECONDS]: '900',
     [AppSystemProp.WORKERS]: '1',
+    // Header used to extract the client IP behind reverse proxies (e.g. 'x-real-ip').
+    // Note: When deployed behind a reverse proxy, the proxy MUST overwrite or sanitize
+    // this header to prevent untrusted clients from spoofing client IPs or draining rate-limit buckets.
+    // When the header value is absent or empty, extractClientRealIp falls back to request.ip.
     [AppSystemProp.CLIENT_REAL_IP_HEADER]: 'x-real-ip',
     [AppSystemProp.CLOUD_AUTH_ENABLED]: 'true',
     [AppSystemProp.CONFIG_PATH]: path.join(os.homedir(), '.activepieces'),
