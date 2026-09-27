@@ -20,6 +20,29 @@ export function getNotionToken(auth: NotionAuthValue): string {
   return getAccessTokenOrThrow(auth);
 }
 
+export const fetchAllWorkspaceUsers = async (notion: Client) => {
+  const users: Awaited<ReturnType<typeof notion.users.list>>['results'] = [];
+  let cursor: string | undefined = undefined;
+  let hasMore = true;
+  const MAX_PAGES = 50; // Safety cap: up to 5,000 members
+  let pageCount = 0;
+
+  while (hasMore && pageCount < MAX_PAGES) {
+    pageCount++;
+    const response = await notion.users.list({
+      page_size: 100,
+      start_cursor: cursor,
+    });
+    if (Array.isArray(response.results)) {
+      users.push(...response.results);
+    }
+    hasMore = response.has_more ?? false;
+    cursor = response.next_cursor ?? undefined;
+  }
+
+  return users;
+};
+
 export const notionCommon = {
   baseUrl: 'https://api.notion.com/v1',
   database_id: Property.Dropdown<string, true, typeof notionAuth>({
@@ -172,6 +195,15 @@ export const notionCommon = {
           auth: getNotionToken(auth as NotionAuthValue),
           notionVersion: '2022-02-22',
         });
+        let cachedUsers:
+          | Awaited<ReturnType<typeof notion.users.list>>['results']
+          | null = null;
+        const getWorkspaceUsers = async () => {
+          if (!cachedUsers) {
+            cachedUsers = await fetchAllWorkspaceUsers(notion);
+          }
+          return cachedUsers;
+        };
         const { properties } = await notion.databases.retrieve({
           database_id: database_id as unknown as string,
         });
@@ -196,7 +228,7 @@ export const notionCommon = {
               continue;
             }
             if (property.type === 'people') {
-              const { results } = await notion.users.list({ page_size: 100 });
+              const results = await getWorkspaceUsers();
               fields[property.name] = Property.StaticMultiSelectDropdown({
                 displayName: property.name,
                 required: false,
@@ -253,6 +285,15 @@ export const notionCommon = {
           auth: getNotionToken(auth as NotionAuthValue),
           notionVersion: '2022-02-22',
         });
+        let cachedUsers:
+          | Awaited<ReturnType<typeof notion.users.list>>['results']
+          | null = null;
+        const getWorkspaceUsers = async () => {
+          if (!cachedUsers) {
+            cachedUsers = await fetchAllWorkspaceUsers(notion);
+          }
+          return cachedUsers;
+        };
         const { properties } = await notion.databases.retrieve({
           database_id: database_id as unknown as string,
         });
@@ -277,7 +318,7 @@ export const notionCommon = {
               continue;
             }
             if (property.type === 'people') {
-              const { results } = await notion.users.list({ page_size: 100 });
+              const results = await getWorkspaceUsers();
               fields[property.name] = Property.StaticDropdown({
                 displayName: property.name,
                 required: false,
