@@ -40,6 +40,7 @@ export function useIntegrations(params?: IntegrationsListParams) {
     queryKey: ['integrations', params ?? {}],
     queryFn: () => apiClient.get<SeekPage<PieceSummary>>('/integrations', { params }),
     placeholderData: keepPreviousData,
+    meta: { showErrorToast: true, showErrorDialog: true },
   })
 }
 
@@ -206,7 +207,7 @@ export function useTriggerBindingsQuery() {
     select: (page) => page.data,
     // Every current call site (Trigger Bindings list, Dashboard summary) renders
     // this as primary data, so a fetch failure should surface a toast.
-    meta: { showErrorToast: true },
+    meta: { showErrorToast: true, showErrorDialog: true },
   })
 }
 
@@ -294,7 +295,7 @@ export function useScheduledTasksQuery() {
     select: (page) => page.data,
     // Every current call site (Scheduled Tasks list, Dashboard summary) renders
     // this as primary data, so a fetch failure should surface a toast.
-    meta: { showErrorToast: true },
+    meta: { showErrorToast: true, showErrorDialog: true },
   })
 }
 
@@ -420,7 +421,7 @@ export function useExecutionsQuery(params?: { status?: ExecutionStatus; limit?: 
     placeholderData: keepPreviousData,
     // Every current call site (Activity list, Dashboard "Recent Executions") renders
     // this as primary data, so a fetch failure should surface a toast.
-    meta: { showErrorToast: true },
+    meta: { showErrorToast: true, showErrorDialog: true },
   })
 }
 
