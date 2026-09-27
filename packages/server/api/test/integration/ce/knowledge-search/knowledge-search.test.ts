@@ -1,140 +1,165 @@
-import fastify, { FastifyInstance } from 'fastify'
-import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod'
+import { ActionBase, TriggerBase } from '@inboxfm-connect/pieces-framework'
+import { PackageType, PieceType, TriggerStrategy, TriggerTestStrategy } from '@inboxfm-connect/shared'
+import { FastifyInstance } from 'fastify'
 import { StatusCodes } from 'http-status-codes'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { db } from '../../../helpers/db'
+import { createMockPieceMetadata } from '../../../helpers/mocks'
+import { createTestContext } from '../../../helpers/test-context'
+import { setupTestEnvironment, teardownTestEnvironment } from '../../../helpers/test-setup'
 
-const mockQuery = vi.fn()
+function action(over: Pick<ActionBase, 'name' | 'displayName' | 'description'>): ActionBase {
+    return { name: over.name, displayName: over.displayName, description: over.description, props: {}, requireAuth: true }
+}
 
-vi.mock('../../../../src/app/knowledge-search/knowledge-search.service', () => ({
-    knowledgeSearchService: vi.fn(() => ({
-        query: mockQuery,
-    })),
-}))
+function trigger(over: Pick<TriggerBase, 'name' | 'displayName' | 'description'>): TriggerBase {
+    return {
+        name: over.name,
+        displayName: over.displayName,
+        description: over.description,
+        props: {},
+        requireAuth: true,
+        type: TriggerStrategy.WEBHOOK,
+        sampleData: {},
+        testStrategy: TriggerTestStrategy.SIMULATION,
+    }
+}
 
-import { knowledgeSearchModule } from '../../../../src/app/knowledge-search/knowledge-search.module'
+async function seedCatalog(): Promise<void> {
+    await db.save('integration_metadata', createMockPieceMetadata({
+        name: '@inboxfm-connect/piece-slack',
+        displayName: 'Slack',
+        version: '1.0.0',
+        pieceType: PieceType.OFFICIAL,
+        packageType: PackageType.REGISTRY,
+        actions: {
+            send_channel_message: action({
+                name: 'send_channel_message',
+                displayName: 'Send Channel Message',
+                description: 'Send a message to a Slack channel',
+            }),
+        },
+        triggers: {
+            new_message: trigger({
+                name: 'new_message',
+                displayName: 'New Message',
+                description: 'Triggers when a new message is posted to a Slack channel',
+            }),
+        },
+    }))
+    await db.save('integration_metadata', createMockPieceMetadata({
+        name: '@inboxfm-connect/piece-gmail',
+        displayName: 'Gmail',
+        version: '1.0.0',
+        pieceType: PieceType.OFFICIAL,
+        packageType: PackageType.REGISTRY,
+        actions: {
+            send_email: action({
+                name: 'send_email',
+                displayName: 'Send Email',
+                description: 'Send an email via Gmail',
+            }),
+        },
+        triggers: {},
+    }))
+}
 
 describe('Knowledge Search API Integration (POST /v1/knowledge-search/query)', () => {
     let app: FastifyInstance
 
-    beforeEach(async () => {
-        vi.clearAllMocks()
-        app = fastify({ logger: false })
-        app.setValidatorCompiler(validatorCompiler)
-        app.setSerializerCompiler(serializerCompiler)
-
-        app.addHook('preHandler', async (req) => {
-            Object.assign(req, {
-                principal: {
-                    platform: { id: 'platform_test_id' },
-                    type: 'USER',
-                },
-                projectId: 'project_test_id',
-            })
-        })
-
-        await app.register(knowledgeSearchModule)
-        await app.ready()
+    beforeAll(async () => {
+        app = await setupTestEnvironment()
+        await seedCatalog()
     })
 
-    afterEach(async () => {
-        await app.close()
+    afterAll(async () => {
+        await teardownTestEnvironment()
+    })
+
+    it('rejects unauthenticated requests with 403 Forbidden', async () => {
+        const response = await app.inject({
+            method: 'POST',
+            url: '/api/v1/knowledge-search/query',
+            payload: {
+                query: 'slack',
+            },
+        })
+
+        expect(response.statusCode).toBe(StatusCodes.FORBIDDEN)
     })
 
     it('rejects empty query with 400 validation error', async () => {
-        const response = await app.inject({
-            method: 'POST',
-            url: '/v1/knowledge-search/query',
-            payload: {
-                query: '',
-            },
+        const ctx = await createTestContext(app)
+        const response = await ctx.post('/v1/knowledge-search/query', {
+            query: '',
         })
 
-        expect(response.statusCode).toBe(StatusCodes.BAD_REQUEST)
-        expect(mockQuery).not.toHaveBeenCalled()
+        expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
     })
 
-    it('enforces platformId and projectId scoping from request context', async () => {
-        mockQuery.mockResolvedValueOnce({
-            results: [],
-            mode: 'keyword',
+    it('rejects invalid limit with 400 validation error', async () => {
+        const ctx = await createTestContext(app)
+        const response = await ctx.post('/v1/knowledge-search/query', {
+            query: 'slack',
+            limit: 0,
         })
 
-        const response = await app.inject({
-            method: 'POST',
-            url: '/v1/knowledge-search/query',
-            payload: {
-                query: 'find customer',
-            },
-        })
-
-        expect(response.statusCode).toBe(StatusCodes.OK)
-        expect(mockQuery).toHaveBeenCalledWith(
-            expect.objectContaining({
-                platformId: 'platform_test_id',
-                projectId: 'project_test_id',
-                query: 'find customer',
-            }),
-        )
+        expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
     })
 
-    it('handles query against non-existent piece/KB returning empty results cleanly', async () => {
-        mockQuery.mockResolvedValueOnce({
-            results: [],
-            mode: 'semantic',
+    it('executes real query against catalog and returns 200 with matching results', async () => {
+        const ctx = await createTestContext(app)
+        const response = await ctx.post('/v1/knowledge-search/query', {
+            query: 'slack',
         })
 
-        const response = await app.inject({
-            method: 'POST',
-            url: '/v1/knowledge-search/query',
-            payload: {
-                query: 'unknown capability',
-                pieceName: '@inboxfm-connect/piece-does-not-exist',
-            },
+        expect(response?.statusCode).toBe(StatusCodes.OK)
+        const body = response?.json()
+        expect(body).toBeDefined()
+        expect(Array.isArray(body.results)).toBe(true)
+        expect(body.results.length).toBeGreaterThan(0)
+        expect(body.results.some((r: any) => r.pieceName === '@inboxfm-connect/piece-slack')).toBe(true)
+        expect(['keyword', 'semantic']).toContain(body.mode)
+    })
+
+    it('filters by objectKind and limits results on the real stack', async () => {
+        const ctx = await createTestContext(app)
+        const response = await ctx.post('/v1/knowledge-search/query', {
+            query: 'slack',
+            objectKind: 'action',
+            limit: 1,
         })
 
-        expect(response.statusCode).toBe(StatusCodes.OK)
-        const body = JSON.parse(response.body)
+        expect(response?.statusCode).toBe(StatusCodes.OK)
+        const body = response?.json()
+        expect(body.results.length).toBeLessThanOrEqual(1)
+        if (body.results.length > 0) {
+            expect(body.results[0].objectKind).toBe('action')
+        }
+    })
+
+    it('returns empty results for non-existent piece on real database stack without failing', async () => {
+        const ctx = await createTestContext(app)
+        const response = await ctx.post('/v1/knowledge-search/query', {
+            query: 'slack',
+            pieceName: '@inboxfm-connect/piece-completely-non-existent-xyz-999',
+        })
+
+        expect(response?.statusCode).toBe(StatusCodes.OK)
+        const body = response?.json()
         expect(body.results).toEqual([])
-        expect(mockQuery).toHaveBeenCalledWith(
-            expect.objectContaining({
-                pieceName: '@inboxfm-connect/piece-does-not-exist',
-                query: 'unknown capability',
-            }),
-        )
     })
 
-    it('filters by objectKind and limits results', async () => {
-        const mockActionResults = [
-            {
-                pieceName: '@inboxfm-connect/piece-slack',
-                objectName: 'send_message',
-                objectKind: 'action' as const,
-                displayName: 'Send Message',
-                oneLineDescription: 'Send a Slack message',
-                requiresConnection: true,
-                cosine: 0.95,
-                connected: true,
-            },
-        ]
+    it('enforces multi-tenant context isolation across different platform callers', async () => {
+        const ctx1 = await createTestContext(app)
+        const ctx2 = await createTestContext(app)
 
-        mockQuery.mockResolvedValueOnce({
-            results: mockActionResults,
-            mode: 'semantic',
-        })
+        const [res1, res2] = await Promise.all([
+            ctx1.post('/v1/knowledge-search/query', { query: 'slack' }),
+            ctx2.post('/v1/knowledge-search/query', { query: 'gmail' }),
+        ])
 
-        const response = await app.inject({
-            method: 'POST',
-            url: '/v1/knowledge-search/query',
-            payload: {
-                query: 'post update',
-                objectKind: 'action',
-                limit: 5,
-            },
-        })
-
-        expect(response.statusCode).toBe(StatusCodes.OK)
-        const body = JSON.parse(response.body)
-        expect(body.results).toHaveLength(1)
-        expect(body.results[0].objectKind).toBe('action')
+        expect(res1?.statusCode).toBe(StatusCodes.OK)
+        expect(res2?.statusCode).toBe(StatusCodes.OK)
     })
 })

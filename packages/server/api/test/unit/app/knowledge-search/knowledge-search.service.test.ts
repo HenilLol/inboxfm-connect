@@ -189,8 +189,8 @@ describe('knowledgeSearchService', () => {
                 limit: 3,
             })
 
-            expect(mockSearchActions).toHaveBeenCalled()
-            expect(mockSearchTriggers).toHaveBeenCalled()
+            expect(mockSearchActions).toHaveBeenCalledWith('message', expect.objectContaining({ limit: 3 }))
+            expect(mockSearchTriggers).toHaveBeenCalledWith('message', expect.objectContaining({ limit: 3 }))
 
             expect(response.mode).toBe('semantic')
             expect(response.results).toHaveLength(3)
