@@ -43,6 +43,31 @@ describe('PropsValidationError (Issue #169)', () => {
         )
     })
 
+    it('formats nested object errors (auth/dynamic props) without duplicating prefix', () => {
+        const nestedError = new PropsValidationError({
+            auth: {
+                apiKey: ['API key is required'],
+            },
+        })
+        const prose = PropsValidationError.formatHumanReadable(nestedError.fieldErrors)
+        expect(prose).toBe('Property validation failed: auth: apiKey: API key is required')
+        expect(prose).not.toContain('Property validation failed: auth: Property validation failed:')
+    })
+
+    it('formats array-property errors with element-aware item indices and field details instead of [object Object]', () => {
+        const arrayError = new PropsValidationError({
+            items: {
+                properties: [
+                    {},
+                    { name: ['Name is required'], quantity: ['Quantity must be a positive number'] },
+                ],
+            },
+        })
+        const prose = PropsValidationError.formatHumanReadable(arrayError.fieldErrors)
+        expect(prose).not.toContain('[object Object]')
+        expect(prose).toContain('items: properties: item 2: name: Name is required; quantity: Quantity must be a positive number')
+    })
+
     it('formatPieceError extracts the human-readable prose message rather than raw JSON', () => {
         const error = new PropsValidationError({
             channel: ['Expected string, received: null'],
@@ -78,5 +103,28 @@ describe('PropsValidationError (Issue #169)', () => {
         expect(response.error).toBeDefined()
         const parsed = JSON.parse(response.error as string)
         expect(parsed.message).toBe('Property validation failed: endpoint: Expected string, received: undefined')
+    })
+
+    it('execute does not log console.error for USER-level ExecutionErrors', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+        vi.spyOn(pieceHelper, 'executeTool').mockRejectedValueOnce(
+            new PropsValidationError({
+                input: ['Input is required'],
+            }),
+        )
+
+        const operation: ExecuteToolOperation = {
+            pieceName: 'test-piece',
+            pieceVersion: '1.0.0',
+            actionName: 'test_action',
+            input: {},
+            apiUrl: 'http://localhost:3000',
+            engineToken: 'test-token',
+            projectId: 'test-project',
+        }
+
+        await execute(EngineOperationType.EXECUTE_TOOL, operation)
+        expect(consoleErrorSpy).not.toHaveBeenCalled()
+        consoleErrorSpy.mockRestore()
     })
 })
