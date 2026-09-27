@@ -286,18 +286,8 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Every query and execution is isolated by <code className="font-mono text-primary font-bold">x-project-id</code> and validated through Fastify security middleware.
+              Every query and execution is isolated by <code className="font-mono text-primary font-bold">x-project-id</code> and validated through Fastify security middleware. Executions run in an isolated-vm sandbox; outbound network access is restricted to the SafeHttp allowlist.
             </p>
-            <div className="rounded-md border border-border bg-muted/40 p-3 space-y-1.5 text-xs">
-              <div className="flex items-center justify-between text-muted-foreground">
-                <span>Tenant Isolation</span>
-                <span className="font-medium text-emerald-600 dark:text-emerald-400">Strict (Project Scoped)</span>
-              </div>
-              <div className="flex items-center justify-between text-muted-foreground">
-                <span>Network Sandboxing</span>
-                <span className="font-medium text-emerald-600 dark:text-emerald-400">Isolated-vm / SafeHttp</span>
-              </div>
-            </div>
           </CardContent>
         </Card>
       </div>

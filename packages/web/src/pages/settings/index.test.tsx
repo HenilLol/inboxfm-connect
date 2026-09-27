@@ -332,7 +332,15 @@ describe('Settings page', () => {
 
     const inputs = Array.from(container.querySelectorAll('input'))
     const values = inputs.map((i) => i.value)
+    expect(values).not.toContain('InboxFM Main Project')
+    expect(values).not.toContain('proj_default')
+    expect(values).not.toContain('developer@inboxfm.local')
+    expect(values).not.toContain('ADMIN')
     expect(values).toContain('—') // Role and project ID fallback
+
+    // Validate honest placeholders when fields are empty
+    expect(container.querySelector('input[placeholder="No project selected"]')).not.toBeNull()
+    expect(container.querySelector('input[placeholder="Not signed in"]')).not.toBeNull()
   })
 
   it('displays concrete tenant isolation policies without placebo action button (#174)', async () => {
@@ -344,8 +352,8 @@ describe('Settings page', () => {
     const container = renderSettingsPage()
     await waitFor(() => container.textContent?.includes('Security & Isolation') === true)
 
-    expect(container.textContent).toContain('Tenant Isolation')
-    expect(container.textContent).toContain('Strict (Project Scoped)')
+    expect(container.textContent).toContain('isolated-vm sandbox')
+    expect(container.textContent).toContain('SafeHttp allowlist')
     expect(container.textContent).not.toContain('Inspect Security Policies')
   })
 })
