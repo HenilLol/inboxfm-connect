@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { Sidebar } from './sidebar'
-import { mountAt } from '@/test/test-utils'
+import { mountAt, waitFor } from '@/test/test-utils'
+import { stubApi } from '@/test/api-stub'
+import { apiClient } from '@/lib/api/client'
 
 const CORE_ITEMS = [
   'Overview',
@@ -48,10 +50,31 @@ describe('Sidebar', () => {
     expect(overviewLink?.className).not.toContain('text-primary')
   })
 
-  it('shows the current project from the auth context', () => {
+  it('shows a proper "No Project" state when no project is selected (#174)', () => {
     const container = mountAt(<Sidebar />, { route: '/' })
 
-    expect(container.textContent).toContain('InboxFM Main Project')
+    expect(container.textContent).toContain('No Project')
+    expect(container.textContent).toContain('Developer Console')
+  })
+
+  it('shows the current project from the auth context when authenticated', async () => {
+    localStorage.setItem('ap-user', JSON.stringify({ id: 'u_1', firstName: 'Dev', email: 'dev@inboxfm.local' }))
+    apiClient.setToken('test-token')
+    stubApi([
+      {
+        match: (url) => url.pathname.includes('/projects'),
+        respond: () => ({
+          status: 200,
+          body: { data: [{ id: 'proj_alpha', displayName: 'Alpha Workspace', platformId: 'plat_1' }] },
+        }),
+      },
+    ])
+
+    const container = mountAt(<Sidebar />, { route: '/' })
+    await waitFor(() => container.textContent?.includes('Alpha Workspace') === true)
+
+    expect(container.textContent).toContain('Alpha Workspace')
     expect(container.textContent).toContain('Developer Console')
   })
 })
+
