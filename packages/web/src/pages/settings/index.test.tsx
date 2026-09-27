@@ -309,4 +309,43 @@ describe('Settings page', () => {
     expect(container.textContent?.includes('Upgrade to Paid Tier')).toBe(false)
     expect(container.textContent?.includes('Manage in Stripe')).toBe(false)
   })
+
+  it('renders neutral placeholders and dash fallbacks when project and user role are missing (#174)', async () => {
+    localStorage.clear()
+    apiClient.setToken('test-token')
+    apiClient.setProjectId('')
+    localStorage.setItem('ap-user', JSON.stringify({ id: 'u_1', firstName: 'Dev' }))
+
+    stubApi([
+      { match: PROJECTS_MATCH, respond: () => ({ body: { data: [] } }) },
+      { match: BILLING_INFO_MATCH, respond: () => ({ body: { stripeBillingEnabled: false } }) },
+    ])
+
+    const container = renderSettingsPage()
+    await waitFor(() => container.textContent?.includes('Developer Identity') === true)
+
+    // Should never fabricate 'InboxFM Main Project', 'proj_default', 'developer@inboxfm.local', or 'ADMIN'
+    expect(container.textContent).not.toContain('InboxFM Main Project')
+    expect(container.textContent).not.toContain('proj_default')
+    expect(container.textContent).not.toContain('developer@inboxfm.local')
+    expect(container.textContent).not.toContain('ADMIN')
+
+    const inputs = Array.from(container.querySelectorAll('input'))
+    const values = inputs.map((i) => i.value)
+    expect(values).toContain('—') // Role and project ID fallback
+  })
+
+  it('displays concrete tenant isolation policies without placebo action button (#174)', async () => {
+    stubApi([
+      { match: PROJECTS_MATCH, respond: () => ({ body: { data: [PROJECT] } }) },
+      { match: BILLING_INFO_MATCH, respond: () => ({ body: { stripeBillingEnabled: false } }) },
+    ])
+
+    const container = renderSettingsPage()
+    await waitFor(() => container.textContent?.includes('Security & Isolation') === true)
+
+    expect(container.textContent).toContain('Tenant Isolation')
+    expect(container.textContent).toContain('Strict (Project Scoped)')
+    expect(container.textContent).not.toContain('Inspect Security Policies')
+  })
 })
