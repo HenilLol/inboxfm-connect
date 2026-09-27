@@ -32,9 +32,16 @@ export const scheduledTaskService = {
             })
         }
 
+        const timezone = request.timezone ?? 'UTC'
+        if (!isValidTimezone(timezone)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: { message: `Invalid timezone: ${timezone}` },
+            })
+        }
+
         const id = apId()
         const status = request.status ?? ScheduledTaskStatus.ENABLED
-        const timezone = request.timezone ?? 'UTC'
         const nextRunAt = status === ScheduledTaskStatus.ENABLED
             ? computeNextRunAt({ cronExpression: request.cronExpression, timezone })
             : null
@@ -92,6 +99,13 @@ export const scheduledTaskService = {
             })
         }
 
+        if (request.timezone !== undefined && !isValidTimezone(request.timezone)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: { message: `Invalid timezone: ${request.timezone}` },
+            })
+        }
+
         const cronExpression = request.cronExpression ?? existing.cronExpression
         const timezone = request.timezone ?? existing.timezone
         const status = request.status ?? existing.status
@@ -134,7 +148,15 @@ export const scheduledTaskService = {
     },
 
     async reRegisterEnabledSchedules({ log }: { log: FastifyBaseLogger }): Promise<{ tasks: number }> {
-        const tasks = await scheduledTaskRepo().findBy({ status: ScheduledTaskStatus.ENABLED })
+        let tasks: ScheduledTaskSchema[] = []
+        try {
+            tasks = await scheduledTaskRepo().findBy({ status: ScheduledTaskStatus.ENABLED })
+        }
+        catch (error) {
+            log.error({ error }, '[scheduledTaskService#reRegisterEnabledSchedules] Failed to query enabled tasks from database')
+            return { tasks: 0 }
+        }
+
         let registered = 0
         for (const task of tasks) {
             try {
@@ -142,9 +164,13 @@ export const scheduledTaskService = {
                     log.warn({ task: { id: task.id } }, '[scheduledTaskService#reRegisterEnabledSchedules] Skipping schedule with invalid cron expression')
                     continue
                 }
-                await syncSchedule(task)
+                if (task.timezone && !isValidTimezone(task.timezone)) {
+                    log.warn({ task: { id: task.id } }, '[scheduledTaskService#reRegisterEnabledSchedules] Skipping schedule with invalid timezone')
+                    continue
+                }
                 const nextRunAt = computeNextRunAt({ cronExpression: task.cronExpression, timezone: task.timezone })
                 await scheduledTaskRepo().update({ id: task.id }, { nextRunAt })
+                await syncSchedule(task)
                 registered += 1
             }
             catch (error) {
@@ -178,6 +204,9 @@ async function claimTaskTick(task: ScheduledTask): Promise<boolean> {
     if (result.error === null) {
         return result.data
     }
+    // If Redis is temporarily down or unreachable, fail-open (return true) so
+    // scheduled executions are not dropped entirely. While this may cause redundant
+    // executions across replicas during a Redis outage, it guarantees execution liveness.
     return true
 }
 
@@ -215,11 +244,13 @@ async function dispatchExecution(task: ScheduledTask): Promise<Execution> {
     })
 
     let nextRunAt: string | null = null
-    try {
-        nextRunAt = computeNextRunAt({ cronExpression: task.cronExpression, timezone: task.timezone })
-    }
-    catch {
-        nextRunAt = null
+    if (task.status === ScheduledTaskStatus.ENABLED) {
+        try {
+            nextRunAt = computeNextRunAt({ cronExpression: task.cronExpression, timezone: task.timezone })
+        }
+        catch {
+            nextRunAt = null
+        }
     }
 
     await scheduledTaskRepo().update({ id: task.id }, {
@@ -227,6 +258,19 @@ async function dispatchExecution(task: ScheduledTask): Promise<Execution> {
         nextRunAt,
     })
     return execution
+}
+
+function isValidTimezone(timezone: string): boolean {
+    if (!timezone || typeof timezone !== 'string') {
+        return false
+    }
+    try {
+        Intl.DateTimeFormat(undefined, { timeZone: timezone })
+        return true
+    }
+    catch {
+        return false
+    }
 }
 
 type CreateParams = {

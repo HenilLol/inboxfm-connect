@@ -266,4 +266,124 @@ describe('Scheduled tasks restart-safe re-registration, nextRunAt, and multi-ins
         // Clean up
         await distributedStore.delete(lockKey)
     })
+
+    it('rejects invalid timezone on create with ErrorCode.VALIDATION', async () => {
+        const ctx = await createTestContext(app!)
+
+        const res = await ctx.post('/v1/scheduled-tasks', {
+            projectId: ctx.project.id,
+            prompt: 'Invalid tz task',
+            cronExpression: '0 12 * * *',
+            timezone: 'Invalid/Timezone_Name',
+            status: ScheduledTaskStatus.ENABLED,
+        })
+
+        expect(res?.statusCode).toBe(StatusCodes.CONFLICT)
+        const body = res!.json()
+        expect(body.code).toBe(ErrorCode.VALIDATION)
+        expect(body.params?.message).toContain('Invalid timezone')
+    })
+
+    it('rejects invalid timezone on update with ErrorCode.VALIDATION', async () => {
+        const ctx = await createTestContext(app!)
+
+        const createRes = await ctx.post('/v1/scheduled-tasks', {
+            projectId: ctx.project.id,
+            prompt: 'Valid tz task initially',
+            cronExpression: '0 12 * * *',
+            timezone: 'UTC',
+            status: ScheduledTaskStatus.ENABLED,
+        })
+        const task = createRes!.json()
+
+        const updateRes = await ctx.post(`/v1/scheduled-tasks/${task.id}`, {
+            timezone: 'Bad/Zone',
+        })
+        expect(updateRes?.statusCode).toBe(StatusCodes.CONFLICT)
+        const body = updateRes!.json()
+        expect(body.code).toBe(ErrorCode.VALIDATION)
+    })
+
+    it('supports valid non-UTC timezone and computes nextRunAt correctly', async () => {
+        const ctx = await createTestContext(app!)
+
+        const res = await ctx.post('/v1/scheduled-tasks', {
+            projectId: ctx.project.id,
+            prompt: 'NYC timezone task',
+            cronExpression: '0 9 * * *',
+            timezone: 'America/New_York',
+            status: ScheduledTaskStatus.ENABLED,
+        })
+        expect(res?.statusCode).toBe(StatusCodes.CREATED)
+        const task = res!.json()
+        expect(task.timezone).toBe('America/New_York')
+        const expected = cronParser.computeNextTick({ cronExpression: '0 9 * * *', timezone: 'America/New_York' }).toISOString()
+        expect(task.nextRunAt).toBe(expected)
+    })
+
+    it('cancels scheduled job in scheduler when task is disabled via API', async () => {
+        const ctx = await createTestContext(app!)
+
+        const res = await ctx.post('/v1/scheduled-tasks', {
+            projectId: ctx.project.id,
+            prompt: 'Task to disable',
+            cronExpression: '0 15 * * *',
+            timezone: 'UTC',
+            status: ScheduledTaskStatus.ENABLED,
+        })
+        const task = res!.json()
+        const jobName = `user-task-${task.id}`
+        expect(scheduler.has(jobName)).toBe(true)
+
+        // Disable via API
+        const disableRes = await ctx.post(`/v1/scheduled-tasks/${task.id}`, {
+            status: ScheduledTaskStatus.DISABLED,
+        })
+        expect(disableRes?.statusCode).toBe(StatusCodes.OK)
+        expect(scheduler.has(jobName)).toBe(false)
+    })
+
+    it('manual run of a DISABLED task writes lastRunAt but preserves null nextRunAt', async () => {
+        const ctx = await createTestContext(app!)
+
+        const res = await ctx.post('/v1/scheduled-tasks', {
+            projectId: ctx.project.id,
+            prompt: 'Disabled manual run task',
+            cronExpression: '0 12 * * *',
+            timezone: 'UTC',
+            status: ScheduledTaskStatus.DISABLED,
+        })
+        const task = res!.json()
+        expect(task.nextRunAt).toBeNull()
+
+        // Trigger manual run
+        const runRes = await ctx.post(`/v1/scheduled-tasks/${task.id}/run`)
+        expect(runRes?.statusCode).toBe(StatusCodes.OK)
+
+        // Read from DB
+        const saved = await db.findOneBy<{ id: string, lastRunAt: string | null, nextRunAt: string | null }>('scheduled_task', { id: task.id })
+        expect(saved?.lastRunAt).not.toBeNull()
+        expect(saved?.nextRunAt).toBeNull()
+    })
+
+    it('boot re-registration handles database query failure gracefully without throwing', async () => {
+        const { repoFactory } = await import('../../../../src/app/core/db/repo-factory')
+        const { ScheduledTaskEntity } = await import('../../../../src/app/execution/scheduled-task/scheduled-task-entity')
+        const { TriggerBindingEntity } = await import('../../../../src/app/execution/trigger-binding/trigger-binding-entity')
+
+        const scheduledRepo = repoFactory(ScheduledTaskEntity)()
+        const triggerRepo = repoFactory(TriggerBindingEntity)()
+
+        const scheduledSpy = vi.spyOn(scheduledRepo, 'findBy').mockRejectedValueOnce(new Error('DB connection refused'))
+        const triggerSpy = vi.spyOn(triggerRepo, 'findBy').mockRejectedValueOnce(new Error('DB connection refused'))
+
+        const taskResult = await scheduledTaskService.reRegisterEnabledSchedules({ log: app!.log })
+        const bindingResult = await triggerBindingService.reRegisterEnabledSchedules({ log: app!.log })
+
+        expect(taskResult.tasks).toBe(0)
+        expect(bindingResult.bindings).toBe(0)
+
+        scheduledSpy.mockRestore()
+        triggerSpy.mockRestore()
+    })
 })

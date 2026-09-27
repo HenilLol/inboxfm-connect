@@ -231,7 +231,15 @@ export const triggerBindingService = {
     },
 
     async reRegisterEnabledSchedules({ log }: { log: FastifyBaseLogger }): Promise<{ bindings: number }> {
-        const bindings = await triggerBindingRepo().findBy({ status: TriggerBindingStatus.ENABLED })
+        let bindings: TriggerBindingSchema[] = []
+        try {
+            bindings = await triggerBindingRepo().findBy({ status: TriggerBindingStatus.ENABLED })
+        }
+        catch (error) {
+            log.error({ error }, '[triggerBindingService#reRegisterEnabledSchedules] Failed to query enabled trigger bindings from database')
+            return { bindings: 0 }
+        }
+
         let registered = 0
         for (const binding of bindings) {
             try {
@@ -246,11 +254,11 @@ export const triggerBindingService = {
     },
 }
 
-async function claimTriggerTick(bindingId: string, cronType: 'run' | 'renew', cronExpression: string): Promise<boolean> {
+async function claimTriggerTick(bindingId: string, cronType: 'run' | 'renew', cronExpression: string, timezone?: string): Promise<boolean> {
     const key = getTriggerBindingTickLockKey(bindingId, cronType)
     let ttlSeconds = 55
     try {
-        const next = cronParser.computeNextTick({ cronExpression })
+        const next = cronParser.computeNextTick({ cronExpression, timezone: timezone ?? 'UTC' })
         const diffSeconds = Math.floor((next.getTime() - Date.now()) / 1000)
         ttlSeconds = Math.max(1, Math.min(55, diffSeconds - 1))
     }
@@ -261,22 +269,27 @@ async function claimTriggerTick(bindingId: string, cronType: 'run' | 'renew', cr
     if (result.error === null) {
         return result.data
     }
+    // If Redis is temporarily down or unreachable, fail-open (return true) so
+    // scheduled executions are not dropped entirely. While this may cause redundant
+    // executions across replicas during a Redis outage, it guarantees execution liveness.
     return true
 }
 
 async function syncTriggerSchedule(binding: TriggerBinding): Promise<void> {
     const cronExpr = typeof binding.settings?.cronExpression === 'string' ? binding.settings.cronExpression : null
+    const timezone = typeof binding.settings?.timezone === 'string' ? binding.settings.timezone : 'UTC'
     if (cronExpr && cronParser.validateCronExpression(cronExpr)) {
         await scheduler.cron({
             name: `trigger-cron-${binding.id}`,
             cronExpression: cronExpr,
+            timezone,
             fn: async () => {
                 const current = await triggerBindingRepo().findOneBy({ id: binding.id })
                 if (!current || current.status !== TriggerBindingStatus.ENABLED) {
                     await unsyncTriggerSchedule(binding.id)
                     return
                 }
-                const isLeader = await claimTriggerTick(binding.id, 'run', cronExpr)
+                const isLeader = await claimTriggerTick(binding.id, 'run', cronExpr, timezone)
                 if (!isLeader) {
                     return
                 }
@@ -290,13 +303,14 @@ async function syncTriggerSchedule(binding: TriggerBinding): Promise<void> {
         await scheduler.cron({
             name: `trigger-renew-${binding.id}`,
             cronExpression: renewCron,
+            timezone,
             fn: async () => {
                 const current = await triggerBindingRepo().findOneBy({ id: binding.id })
                 if (!current || current.status !== TriggerBindingStatus.ENABLED) {
                     await unsyncTriggerSchedule(binding.id)
                     return
                 }
-                const isLeader = await claimTriggerTick(binding.id, 'renew', renewCron)
+                const isLeader = await claimTriggerTick(binding.id, 'renew', renewCron, timezone)
                 if (!isLeader) {
                     return
                 }

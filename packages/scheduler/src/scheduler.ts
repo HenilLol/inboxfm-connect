@@ -12,7 +12,15 @@ export const scheduler: Scheduler & { setScheduler: (newScheduler: Scheduler) =>
     has: (id) => activeScheduler.has(id),
     getActiveTaskCount: () => activeScheduler.getActiveTaskCount(),
     getTaskIds: () => activeScheduler.getTaskIds(),
+    /**
+     * Replaces the active scheduler implementation.
+     * Automatically shuts down any active jobs on the displaced scheduler
+     * to avoid orphaned timer loops or memory leaks on replacement.
+     */
     setScheduler: (newScheduler: Scheduler) => {
+        if (activeScheduler && typeof activeScheduler.shutdown === 'function') {
+            void activeScheduler.shutdown()
+        }
         activeScheduler = newScheduler
     },
 }
