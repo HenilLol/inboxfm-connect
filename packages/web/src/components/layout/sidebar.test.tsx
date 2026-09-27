@@ -76,5 +76,11 @@ describe('Sidebar', () => {
     expect(container.textContent).toContain('Alpha Workspace')
     expect(container.textContent).toContain('Developer Console')
   })
+
+  it('shows Not signed in for the session user with an empty email', () => {
+    const container = mountAt(<Sidebar />, { route: '/' })
+
+    expect(container.textContent).toContain('Not signed in')
+  })
 })
 

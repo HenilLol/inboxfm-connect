@@ -209,8 +209,8 @@ export default function SettingsPage() {
             <div className="space-y-1">
               <label className="text-xs font-semibold text-foreground">Email Address</label>
               <Input
-                value={user?.email || '—'}
-                placeholder="Not authenticated"
+                value={user?.email || ''}
+                placeholder="Not signed in"
                 readOnly
               />
             </div>

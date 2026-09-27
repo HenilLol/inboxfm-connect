@@ -204,7 +204,7 @@ export function Sidebar({ className }: { className?: string }) {
                   {user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Developer'}
                 </span>
                 <span className="text-[10px] text-muted-foreground truncate leading-tight">
-                  {user?.email || '—'}
+                  {user?.email || 'Not signed in'}
                 </span>
               </div>
               <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -215,7 +215,7 @@ export function Sidebar({ className }: { className?: string }) {
                   <p className="text-xs font-semibold text-foreground">
                     {user?.firstName ? `${user.firstName} ${user.lastName || ''}` : 'Developer'}
                   </p>
-                  <p className="text-[11px] text-muted-foreground">{user?.email}</p>
+                  <p className="text-[11px] text-muted-foreground">{user?.email || 'Not signed in'}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
