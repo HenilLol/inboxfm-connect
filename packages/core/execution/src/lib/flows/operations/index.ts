@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { Nullable } from '@inboxfm-connect/core-utils'
 import { Metadata } from '@inboxfm-connect/core-utils'
-import { BranchCondition, CodeActionSchema, CodeActionSettings, FlowActionType, LoopOnItemsActionSchema, LoopOnItemsActionSettings, PieceActionSchema, PieceActionSettings, RouterActionSchema, RouterActionSettings } from '../actions/action'
+import { CodeActionSchema, CodeActionSettings, FlowActionType, LoopOnItemsActionSchema, LoopOnItemsActionSettings, PieceActionSchema, PieceActionSettings, RouterActionSchema, RouterActionSettings, ValidBranchCondition } from '../actions/action'
 import { FlowStatus } from '../flow'
 import { FlowVersion, FlowVersionState } from '../flow-version'
 import { Note } from '../note'
@@ -68,7 +68,7 @@ export const AddNoteRequest = Note.omit({ createdAt: true, updatedAt: true, owne
 export const AddBranchRequest = z.object({
     branchIndex: z.number(),
     stepName: z.string(),
-    conditions: z.array(z.array(BranchCondition)).optional(),
+    conditions: z.array(z.array(ValidBranchCondition)).optional(),
     branchName: z.string(),
 })
 export const MoveBranchRequest = z.object({

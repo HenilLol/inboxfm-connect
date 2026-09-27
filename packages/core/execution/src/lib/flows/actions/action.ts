@@ -235,27 +235,29 @@ function buildBranchConditionValid(addMinLength: boolean) {
 export const ValidBranchCondition = buildBranchConditionValid(true)
 export type ValidBranchCondition = z.infer<typeof ValidBranchCondition>
 
-// TODO remove this and use ValidBranchCondition everywhere
-export const BranchCondition = buildBranchConditionValid(false)
-export type BranchCondition = z.infer<typeof BranchCondition>
+/**
+ * @deprecated Use `ValidBranchCondition` instead. The lax `BranchCondition` schema allowed empty condition values that fail builder validation.
+ */
+export const BranchCondition = ValidBranchCondition
+export type BranchCondition = ValidBranchCondition
 
-export const BranchTextCondition = buildBranchTextConditionValid(false)
+export const BranchTextCondition = buildBranchTextConditionValid(true)
 export type BranchTextCondition = z.infer<typeof BranchTextCondition>
 
-export const BranchNumberCondition = buildBranchNumberConditionValid(false)
+export const BranchNumberCondition = buildBranchNumberConditionValid(true)
 export type BranchNumberCondition = z.infer<typeof BranchNumberCondition>
 
-export const BranchDateCondition = buildBranchDateConditionValid(false)
+export const BranchDateCondition = buildBranchDateConditionValid(true)
 export type BranchDateCondition = z.infer<typeof BranchDateCondition>
 
 export const BranchSingleValueCondition =
-  buildBranchSingleValueConditionValid(false)
+  buildBranchSingleValueConditionValid(true)
 export type BranchSingleValueCondition = z.infer<
   typeof BranchSingleValueCondition
 >
 
 
-export const RouterBranchesSchema = (addMinLength: boolean) =>
+export const RouterBranchesSchema = (addMinLength = true) =>
     z.array(
         z.union([
             z.object({
@@ -272,14 +274,11 @@ export const RouterBranchesSchema = (addMinLength: boolean) =>
 
 export const RouterActionSettings = z.object({
     ...commonActionSettings,
-    branches: RouterBranchesSchema(false),
-    executionType: z.nativeEnum(RouterExecutionType),
-})
-
-export const RouterActionSettingsWithValidation = z.object({
     branches: RouterBranchesSchema(true),
     executionType: z.nativeEnum(RouterExecutionType),
 })
+
+export const RouterActionSettingsWithValidation = RouterActionSettings
 
 export type RouterActionSettings = z.infer<typeof RouterActionSettings>
 
