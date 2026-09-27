@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, KeyRound, PencilLine, Plus, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ConnectionStatusBadge } from '@/components/connections/connection-status-badge'
@@ -11,7 +11,9 @@ import { Card } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
 import { ErrorState } from '@/components/ui/error-state'
 import { Skeleton } from '@/components/ui/skeleton'
+import { apiClient } from '@/lib/api/client'
 import { AppConnection } from '@/lib/api/types'
+import { useOptionalAuth } from '@/lib/auth/auth-context'
 import { useConnectionsQuery, useDeleteConnection, useIntegrations } from '@/lib/query/hooks'
 import { connectionLinks } from '@/lib/utils/connection-links'
 import { connectionFormat } from '@/lib/utils/connection-format'
@@ -42,8 +44,32 @@ function ListSkeleton() {
 export default function ConnectionsPage() {
   const navigate = useNavigate()
   const pieceLookup = usePieceLookup()
-  const [cursor, setCursor] = useState<string | undefined>(undefined)
-  const { data, isLoading, isError, refetch } = useConnectionsQuery({ limit: 100, cursor })
+  const auth = useOptionalAuth()
+  const currentProjectId = auth?.currentProject?.id ?? apiClient.getProjectId() ?? undefined
+
+  const [cursorState, setCursorState] = useState<{ projectId?: string; cursor?: string }>({
+    projectId: currentProjectId,
+    cursor: undefined,
+  })
+
+  // Drop cursor back to page 1 immediately on project mismatch
+  const cursor = cursorState.projectId === currentProjectId ? cursorState.cursor : undefined
+
+  const setCursor = (nextCursor?: string) => {
+    setCursorState({
+      projectId: currentProjectId,
+      cursor: nextCursor,
+    })
+  }
+
+  useEffect(() => {
+    setCursorState({ projectId: currentProjectId, cursor: undefined })
+  }, [currentProjectId])
+
+  const { data, isLoading, isFetching, isError, refetch } = useConnectionsQuery(
+    { limit: 100, cursor },
+    { keepPreviousData: true }
+  )
   const deleteConnection = useDeleteConnection()
   const [deleteTarget, setDeleteTarget] = useState<AppConnection | null>(null)
 
@@ -201,38 +227,36 @@ export default function ConnectionsPage() {
               </tbody>
             </table>
           </div>
-          {(hasNext || hasPrevious || connections.length > 0) && (
-            <div className="flex items-center justify-between border-t border-border px-4 py-3 bg-muted/20 text-xs text-muted-foreground">
-              <span data-testid="connections-count">
-                Showing {connections.length} connection{connections.length === 1 ? '' : 's'}
-                {hasNext && ' (more available)'}
-              </span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!hasPrevious || isLoading}
-                  onClick={() => setCursor(data?.previous ?? undefined)}
-                  data-testid="connections-prev-page"
-                  className="gap-1 h-7 text-xs"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                  <span>Previous</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!hasNext || isLoading}
-                  onClick={() => setCursor(data?.next ?? undefined)}
-                  data-testid="connections-next-page"
-                  className="gap-1 h-7 text-xs"
-                >
-                  <span>Next</span>
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </Button>
-              </div>
+          <div className="flex items-center justify-between border-t border-border px-4 py-3 bg-muted/20 text-xs text-muted-foreground">
+            <span data-testid="connections-count" aria-live="polite">
+              Showing {connections.length} connection{connections.length === 1 ? '' : 's'}
+              {hasNext && ' (more available)'}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasPrevious || isFetching}
+                onClick={() => setCursor(data?.previous ?? undefined)}
+                data-testid="connections-prev-page"
+                className="gap-1 h-7 text-xs"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                <span>Previous</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!hasNext || isFetching}
+                onClick={() => setCursor(data?.next ?? undefined)}
+                data-testid="connections-next-page"
+                className="gap-1 h-7 text-xs"
+              >
+                <span>Next</span>
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
             </div>
-          )}
+          </div>
         </Card>
       )}
 

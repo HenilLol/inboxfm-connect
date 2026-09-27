@@ -59,12 +59,15 @@ export function useIntegration(name?: string) {
   })
 }
 
-export function useConnectionsQuery(params?: ConnectionsListParams) {
+export function useConnectionsQuery(
+  params?: ConnectionsListParams,
+  options?: { keepPreviousData?: boolean }
+) {
   const projectId = apiClient.getProjectId()
   return useQuery({
     queryKey: ['connections', params ?? {}, projectId],
     queryFn: () => connectionsApi.list(params),
-    placeholderData: keepPreviousData,
+    placeholderData: options?.keepPreviousData ? keepPreviousData : undefined,
     meta: { showErrorToast: true, showErrorDialog: true },
   })
 }
@@ -204,7 +207,6 @@ export function useTriggerBindingsQuery() {
   return useQuery({
     queryKey: ['trigger-bindings', apiClient.getProjectId()],
     queryFn: () => automationsApi.listTriggerBindings(),
-    placeholderData: keepPreviousData,
     select: (page) => page.data,
     // Every current call site (Trigger Bindings list, Dashboard summary) renders
     // this as primary data, so a fetch failure should surface a toast.
@@ -293,7 +295,6 @@ export function useScheduledTasksQuery() {
   return useQuery({
     queryKey: ['scheduled-tasks', apiClient.getProjectId()],
     queryFn: () => automationsApi.listScheduledTasks(),
-    placeholderData: keepPreviousData,
     select: (page) => page.data,
     // Every current call site (Scheduled Tasks list, Dashboard summary) renders
     // this as primary data, so a fetch failure should surface a toast.

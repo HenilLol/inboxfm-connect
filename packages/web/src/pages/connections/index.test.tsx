@@ -12,6 +12,9 @@ import {
   seekPage,
 } from '@/test/fixtures/integrations'
 import { createTestQueryClient, mount, waitFor } from '@/test/test-utils'
+import { apiClient } from '@/lib/api/client'
+import { AuthProvider, useAuth } from '@/lib/auth/auth-context'
+import { testProject, testUser } from '@/test/fixtures/api-keys'
 
 function renderConnections(): HTMLElement {
   const queryClient = createTestQueryClient()
@@ -296,5 +299,105 @@ describe('Connections page', () => {
 
     await clickTextButton('Previous page')
     await waitFor(() => container.textContent?.includes('Mihir GitHub') === true)
+  }, 15000)
+
+  it('resets cursor to page 1 when switching projects', async () => {
+    const project1 = testProject({ id: 'proj_1', displayName: 'Project 1' })
+    const project2 = testProject({ id: 'proj_2', displayName: 'Project 2' })
+
+    const capturedCursors: { projectId: string | null; cursor: string | null }[] = []
+
+    stubApi([
+      {
+        match: (url) => url.pathname === '/api/v1/projects',
+        respond: () => ({ status: 200, body: { data: [project1, project2] } }),
+      },
+      {
+        match: LIST_MATCH,
+        respond: (url) => {
+          const projectId = apiClient.getProjectId()
+          const cursor = url.searchParams.get('cursor')
+          capturedCursors.push({ projectId, cursor })
+
+          if (projectId === 'proj_2') {
+            return {
+              status: 200,
+              body: {
+                data: [githubConnection('conn_proj2', 'Project 2 GitHub')],
+                next: null,
+                previous: null,
+              },
+            }
+          }
+
+          if (cursor === 'cursor_page_2') {
+            return {
+              status: 200,
+              body: {
+                data: [slackConnection('conn_proj1_p2', 'Project 1 Slack')],
+                next: null,
+                previous: 'cursor_page_1',
+              },
+            }
+          }
+
+          return {
+            status: 200,
+            body: {
+              data: [githubConnection('conn_proj1_p1', 'Project 1 GitHub')],
+              next: 'cursor_page_2',
+              previous: null,
+            },
+          }
+        },
+      },
+      {
+        match: (url) => url.pathname === '/api/v1/integrations',
+        respond: () => ({ status: 200, body: seekPage([githubSummary(), slackSummary()]) }),
+      },
+    ])
+
+    let authSetter: ((p: any) => void) | null = null
+    function AuthController() {
+      const auth = useAuth()
+      authSetter = auth.setCurrentProject
+      return null
+    }
+
+    apiClient.setToken('test-token')
+    apiClient.setProjectId('proj_1')
+    localStorage.setItem('ap-user', JSON.stringify(testUser()))
+
+    const queryClient = createTestQueryClient()
+    const container = mount(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <AuthController />
+          <MemoryRouter initialEntries={['/connections']}>
+            <Routes>
+              <Route path="/connections" element={<ConnectionsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </AuthProvider>
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => container.textContent?.includes('Project 1 GitHub') === true)
+
+    await clickTextButton('Next')
+    await waitFor(() => container.textContent?.includes('Project 1 Slack') === true)
+
+    const p1Page2Call = capturedCursors.find((c) => c.projectId === 'proj_1' && c.cursor === 'cursor_page_2')
+    expect(p1Page2Call).toBeDefined()
+
+    await act(async () => {
+      authSetter?.(project2)
+    })
+
+    await waitFor(() => container.textContent?.includes('Project 2 GitHub') === true)
+
+    const p2Calls = capturedCursors.filter((c) => c.projectId === 'proj_2')
+    expect(p2Calls.length).toBeGreaterThan(0)
+    expect(p2Calls.every((c) => c.cursor === null)).toBe(true)
   }, 15000)
 })
