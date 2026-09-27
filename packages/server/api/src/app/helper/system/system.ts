@@ -23,6 +23,15 @@ const systemPropDefaultValues: Partial<Record<SystemProp, string>> = {
     // flag that registers the underlying @fastify/rate-limit plugin.
     [AppSystemProp.API_RATE_LIMIT_AUTHN_ABUSE_MAX]: '10',
     [AppSystemProp.API_RATE_LIMIT_AUTHN_ABUSE_WINDOW]: '1 minute',
+    // IP-scoped tier for routes that synchronously run piece code or fan out to
+    // upstream AI/search providers inside the API process (execute, executions
+    // list/create, knowledge-search, AI providers). 60/min/IP stays far above dashboard
+    // polling while capping cheap parallel-request DoS. Gated by
+    // AP_API_RATE_LIMIT_SYNC_ENABLED, which registers the same underlying
+    // @fastify/rate-limit plugin instance as the AUTHN tier.
+    [AppSystemProp.API_RATE_LIMIT_SYNC_ENABLED]: 'true',
+    [AppSystemProp.API_RATE_LIMIT_SYNC_MAX]: '60',
+    [AppSystemProp.API_RATE_LIMIT_SYNC_WINDOW]: '1 minute',
     // Per-email (not per-IP) counter on failed sign-in attempts, so credential
     // stuffing against a single account from many IPs/a botnet can't outrun the
     // per-IP tier above. 5 failed attempts / 15-minute window per email is a

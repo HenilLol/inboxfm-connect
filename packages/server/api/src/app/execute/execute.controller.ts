@@ -10,6 +10,7 @@ import { appConnectionService, appConnectionsRepo } from '../app-connection/app-
 import { AppConnectionSchema } from '../app-connection/app-connection.entity'
 import { ProjectResourceType } from '../core/security/authorization/common'
 import { securityAccess } from '../core/security/authorization/fastify-security'
+import { syncExecutionRateLimitOptions } from '../core/security/rate-limit'
 import { system } from '../helper/system/system'
 import { AppSystemProp } from '../helper/system/system-props'
 
@@ -145,6 +146,7 @@ const ExecuteRequestOptions = {
             Permission.WRITE_APP_CONNECTION,
             { type: ProjectResourceType.BODY },
         ),
+        rateLimit: syncExecutionRateLimitOptions,
     },
     schema: {
         tags: ['execute'],

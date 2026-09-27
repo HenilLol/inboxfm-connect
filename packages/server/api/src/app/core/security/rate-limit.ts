@@ -10,9 +10,13 @@ const API_RATE_LIMIT_AUTHN_ENABLED = system.getBoolean(
     AppSystemProp.API_RATE_LIMIT_AUTHN_ENABLED,
 )
 
+const API_RATE_LIMIT_SYNC_ENABLED = system.getBoolean(
+    AppSystemProp.API_RATE_LIMIT_SYNC_ENABLED,
+)
+
 export const rateLimitModule: FastifyPluginAsyncZod = FastifyPlugin(
     async (app) => {
-        if (API_RATE_LIMIT_AUTHN_ENABLED) {
+        if (API_RATE_LIMIT_AUTHN_ENABLED || API_RATE_LIMIT_SYNC_ENABLED) {
             await app.register(RateLimitPlugin, {
                 global: false,
                 keyGenerator: (req) => networkUtils.extractClientRealIp(req, system.get(AppSystemProp.CLIENT_REAL_IP_HEADER)),
@@ -35,4 +39,12 @@ export const authAbuseRateLimitOptions: RateLimitOptions = {
         10,
     ),
     timeWindow: system.getOrThrow(AppSystemProp.API_RATE_LIMIT_AUTHN_ABUSE_WINDOW),
+}
+
+export const syncExecutionRateLimitOptions: RateLimitOptions = {
+    max: Number.parseInt(
+        system.getOrThrow(AppSystemProp.API_RATE_LIMIT_SYNC_MAX),
+        10,
+    ),
+    timeWindow: system.getOrThrow(AppSystemProp.API_RATE_LIMIT_SYNC_WINDOW),
 }
