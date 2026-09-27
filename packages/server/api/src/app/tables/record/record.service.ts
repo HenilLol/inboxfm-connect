@@ -483,6 +483,8 @@ function formatRecords(records: RecordSchema[], fields: Field[]): PopulatedRecor
 }
 
 
+const STRICT_NUMERIC_FILTER_REGEX = /^[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]{1,4})?$/
+
 function applyFilterToQueryBuilder(
     qb: SelectQueryBuilder<RecordSchema>,
     filter: Filter,
@@ -496,6 +498,7 @@ function applyFilterToQueryBuilder(
                     SELECT 1 FROM cell
                     WHERE cell."recordId" = record.id
                       AND cell."fieldId" = :${fieldParam}
+                      AND cell."projectId" = record."projectId"
                       AND cell.value IS NOT NULL
                       AND cell.value != ''
                 )`,
@@ -509,6 +512,7 @@ function applyFilterToQueryBuilder(
                     SELECT 1 FROM cell
                     WHERE cell."recordId" = record.id
                       AND cell."fieldId" = :${fieldParam}
+                      AND cell."projectId" = record."projectId"
                       AND cell.value IS NOT NULL
                       AND cell.value != ''
                 )`,
@@ -519,7 +523,7 @@ function applyFilterToQueryBuilder(
         case FilterOperator.EQ: {
             const valParam = `filter_val_${index}`
             qb.andWhere(
-                `COALESCE((SELECT cell.value FROM cell WHERE cell."recordId" = record.id AND cell."fieldId" = :${fieldParam} LIMIT 1), '') = :${valParam}`,
+                `COALESCE((SELECT cell.value FROM cell WHERE cell."recordId" = record.id AND cell."fieldId" = :${fieldParam} AND cell."projectId" = record."projectId" LIMIT 1), '') = :${valParam}`,
                 {
                     [fieldParam]: filter.fieldId,
                     [valParam]: filter.value,
@@ -530,7 +534,7 @@ function applyFilterToQueryBuilder(
         case FilterOperator.NEQ: {
             const valParam = `filter_val_${index}`
             qb.andWhere(
-                `COALESCE((SELECT cell.value FROM cell WHERE cell."recordId" = record.id AND cell."fieldId" = :${fieldParam} LIMIT 1), '') != :${valParam}`,
+                `COALESCE((SELECT cell.value FROM cell WHERE cell."recordId" = record.id AND cell."fieldId" = :${fieldParam} AND cell."projectId" = record."projectId" LIMIT 1), '') != :${valParam}`,
                 {
                     [fieldParam]: filter.fieldId,
                     [valParam]: filter.value,
@@ -542,7 +546,7 @@ function applyFilterToQueryBuilder(
             const patternParam = `filter_pattern_${index}`
             const escaped = filter.value.replace(/([%_\\])/g, '\\$1')
             qb.andWhere(
-                `COALESCE((SELECT cell.value FROM cell WHERE cell."recordId" = record.id AND cell."fieldId" = :${fieldParam} LIMIT 1), '') ILIKE :${patternParam}`,
+                `COALESCE((SELECT cell.value FROM cell WHERE cell."recordId" = record.id AND cell."fieldId" = :${fieldParam} AND cell."projectId" = record."projectId" LIMIT 1), '') ILIKE :${patternParam}`,
                 {
                     [fieldParam]: filter.fieldId,
                     [patternParam]: `%${escaped}%`,
@@ -554,8 +558,8 @@ function applyFilterToQueryBuilder(
         case FilterOperator.GTE:
         case FilterOperator.LT:
         case FilterOperator.LTE: {
-            const num = parseFloat(filter.value)
-            if (Number.isNaN(num)) {
+            const trimmedFilter = filter.value.trim()
+            if (!STRICT_NUMERIC_FILTER_REGEX.test(trimmedFilter)) {
                 qb.andWhere('1 = 0')
                 break
             }
@@ -567,22 +571,27 @@ function applyFilterToQueryBuilder(
                         ? '<'
                         : '<='
             const numParam = `filter_num_${index}`
+            // PostgreSQL / PGlite compatibility: Use ::numeric with a bounded regex guard
+            // to support arbitrary-precision numbers and prevent 22003 overflow errors on extreme values.
             qb.andWhere(
                 `EXISTS (
                     SELECT 1 FROM cell
                     WHERE cell."recordId" = record.id
                       AND cell."fieldId" = :${fieldParam}
+                      AND cell."projectId" = record."projectId"
                       AND (
                           CASE
-                              WHEN cell.value IS NOT NULL AND TRIM(cell.value) ~ '^[-+]?[0-9]*\\.?[0-9]+([eE][-+]?[0-9]+)?$'
-                              THEN (TRIM(cell.value))::double precision
+                              WHEN cell.value IS NOT NULL
+                               AND LENGTH(TRIM(cell.value)) <= 500
+                               AND TRIM(cell.value) ~ '^[-+]?([0-9]+(\\.[0-9]+)?|\\.[0-9]+)([eE][-+]?[0-9]{1,4})?$'
+                              THEN (TRIM(cell.value))::numeric
                               ELSE NULL
                           END
-                      ) ${sqlOp} :${numParam}
+                      ) ${sqlOp} :${numParam}::numeric
                 )`,
                 {
                     [fieldParam]: filter.fieldId,
-                    [numParam]: num,
+                    [numParam]: trimmedFilter,
                 },
             )
             break

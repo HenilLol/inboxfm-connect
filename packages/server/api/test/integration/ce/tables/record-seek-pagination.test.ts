@@ -308,4 +308,257 @@ describe('Record Service - SQL Seek Pagination and Filtering (#157)', () => {
             expect(record.cells[field.id].value).toMatch(/^val-\d+$/)
         }
     })
+
+    it('should paginate correctly across identical created timestamps using id tiebreaker', async () => {
+        const { project, table } = await setupTableWithField()
+        const fixedTimestamp = new Date('2026-01-01T12:00:00.000Z').toISOString()
+
+        const records = []
+        for (let i = 0; i < 4; i++) {
+            const rec = createMockRecord({ tableId: table.id, projectId: project.id })
+            rec.created = fixedTimestamp
+            await db.save('record', rec)
+            records.push(rec)
+        }
+
+        // Sort expected by id ascending (composite order: [created ASC, id ASC])
+        records.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+
+        const page1 = await recordService.list({
+            tableId: table.id,
+            projectId: project.id,
+            cursorRequest: null,
+            limit: 2,
+            filters: null,
+        })
+
+        expect(page1.data).toHaveLength(2)
+        expect(page1.data[0].id).toBe(records[0].id)
+        expect(page1.data[1].id).toBe(records[1].id)
+        expect(page1.next).not.toBeNull()
+
+        const page2 = await recordService.list({
+            tableId: table.id,
+            projectId: project.id,
+            cursorRequest: page1.next,
+            limit: 2,
+            filters: null,
+        })
+
+        expect(page2.data).toHaveLength(2)
+        expect(page2.data[0].id).toBe(records[2].id)
+        expect(page2.data[1].id).toBe(records[3].id)
+
+        // Previous back to page 1
+        const backPage1 = await recordService.list({
+            tableId: table.id,
+            projectId: project.id,
+            cursorRequest: page2.previous,
+            limit: 2,
+            filters: null,
+        })
+        expect(backPage1.data).toHaveLength(2)
+        expect(backPage1.data[0].id).toBe(records[0].id)
+        expect(backPage1.data[1].id).toBe(records[1].id)
+    })
+
+    it('should compose filters with seek cursor pagination', async () => {
+        const { project, table, numField } = await setupTableWithField()
+
+        const baseTime = Date.now() - 50000
+        const scores = [10, 20, 30, 40, 50]
+        const matchedRecords = []
+
+        for (let i = 0; i < scores.length; i++) {
+            const rec = createMockRecord({ tableId: table.id, projectId: project.id })
+            rec.created = new Date(baseTime + i * 1000).toISOString()
+            await db.save('record', rec)
+
+            const cell = createMockCell({ recordId: rec.id, fieldId: numField.id, projectId: project.id })
+            cell.value = String(scores[i])
+            await db.save('cell', cell)
+
+            if (scores[i] > 15) {
+                matchedRecords.push(rec)
+            }
+        }
+
+        const filter = [{ fieldId: numField.id, operator: FilterOperator.GT, value: '15' }]
+
+        // Page 1 of filtered records
+        const page1 = await recordService.list({
+            tableId: table.id,
+            projectId: project.id,
+            cursorRequest: null,
+            limit: 2,
+            filters: filter,
+        })
+
+        expect(page1.data).toHaveLength(2)
+        expect(page1.data[0].id).toBe(matchedRecords[0].id)
+        expect(page1.data[1].id).toBe(matchedRecords[1].id)
+        expect(page1.next).not.toBeNull()
+
+        // Page 2 of filtered records
+        const page2 = await recordService.list({
+            tableId: table.id,
+            projectId: project.id,
+            cursorRequest: page1.next,
+            limit: 2,
+            filters: filter,
+        })
+
+        expect(page2.data).toHaveLength(2)
+        expect(page2.data[0].id).toBe(matchedRecords[2].id)
+        expect(page2.data[1].id).toBe(matchedRecords[3].id)
+    })
+
+    it('should escape % and _ wildcards in CO operator so they match literally', async () => {
+        const { project, table, field } = await setupTableWithField()
+
+        const recWithPercent = createMockRecord({ tableId: table.id, projectId: project.id })
+        await db.save('record', recWithPercent)
+        const cellPercent = createMockCell({ recordId: recWithPercent.id, fieldId: field.id, projectId: project.id })
+        cellPercent.value = 'hello%world'
+        await db.save('cell', cellPercent)
+
+        const recWithUnderscore = createMockRecord({ tableId: table.id, projectId: project.id })
+        await db.save('record', recWithUnderscore)
+        const cellUnderscore = createMockCell({ recordId: recWithUnderscore.id, fieldId: field.id, projectId: project.id })
+        cellUnderscore.value = 'hello_world'
+        await db.save('cell', cellUnderscore)
+
+        const recPlain = createMockRecord({ tableId: table.id, projectId: project.id })
+        await db.save('record', recPlain)
+        const cellPlain = createMockCell({ recordId: recPlain.id, fieldId: field.id, projectId: project.id })
+        cellPlain.value = 'helloworld'
+        await db.save('cell', cellPlain)
+
+        // CO with '%' should match only 'hello%world'
+        const percentResult = await recordService.list({
+            tableId: table.id,
+            projectId: project.id,
+            cursorRequest: null,
+            limit: 10,
+            filters: [{ fieldId: field.id, operator: FilterOperator.CO, value: 'o%w' }],
+        })
+        expect(percentResult.data).toHaveLength(1)
+        expect(percentResult.data[0].id).toBe(recWithPercent.id)
+
+        // CO with '_' should match only 'hello_world'
+        const underscoreResult = await recordService.list({
+            tableId: table.id,
+            projectId: project.id,
+            cursorRequest: null,
+            limit: 10,
+            filters: [{ fieldId: field.id, operator: FilterOperator.CO, value: 'o_w' }],
+        })
+        expect(underscoreResult.data).toHaveLength(1)
+        expect(underscoreResult.data[0].id).toBe(recWithUnderscore.id)
+    })
+
+    it('should not 500 when table has huge, overflowing, or malformed numeric cell values', async () => {
+        const { project, table, numField } = await setupTableWithField()
+
+        // Seed 300-digit number (handled by ::numeric without double precision overflow)
+        const hugeNumber = '9'.repeat(300)
+        const recHuge = createMockRecord({ tableId: table.id, projectId: project.id })
+        await db.save('record', recHuge)
+        const cellHuge = createMockCell({ recordId: recHuge.id, fieldId: numField.id, projectId: project.id })
+        cellHuge.value = hugeNumber
+        await db.save('cell', cellHuge)
+
+        // Seed 1e999 (out of range for double precision, valid in numeric)
+        const recExp = createMockRecord({ tableId: table.id, projectId: project.id })
+        await db.save('record', recExp)
+        const cellExp = createMockCell({ recordId: recExp.id, fieldId: numField.id, projectId: project.id })
+        cellExp.value = '1e999'
+        await db.save('cell', cellExp)
+
+        // Seed 1e999999 (astronomical exponent, rejected by regex guard, degrades to null without 500)
+        const recAstro = createMockRecord({ tableId: table.id, projectId: project.id })
+        await db.save('record', recAstro)
+        const cellAstro = createMockCell({ recordId: recAstro.id, fieldId: numField.id, projectId: project.id })
+        cellAstro.value = '1e999999'
+        await db.save('cell', cellAstro)
+
+        // Seed normal record
+        const recNormal = createMockRecord({ tableId: table.id, projectId: project.id })
+        await db.save('record', recNormal)
+        const cellNormal = createMockCell({ recordId: recNormal.id, fieldId: numField.id, projectId: project.id })
+        cellNormal.value = '50'
+        await db.save('cell', cellNormal)
+
+        // Query GT 100 — must succeed without 500
+        const result = await recordService.list({
+            tableId: table.id,
+            projectId: project.id,
+            cursorRequest: null,
+            limit: 10,
+            filters: [{ fieldId: numField.id, operator: FilterOperator.GT, value: '100' }],
+        })
+
+        const matchedIds = result.data.map(r => r.id)
+        expect(matchedIds).toContain(recHuge.id)
+        expect(matchedIds).toContain(recExp.id)
+        expect(matchedIds).not.toContain(recNormal.id)
+        expect(matchedIds).not.toContain(recAstro.id)
+    })
+
+    it('should safely reject malformed filter values and not prefix-parse them', async () => {
+        const { project, table, numField } = await setupTableWithField()
+
+        const rec = createMockRecord({ tableId: table.id, projectId: project.id })
+        await db.save('record', rec)
+        await db.save('cell', createMockCell({ recordId: rec.id, fieldId: numField.id, projectId: project.id, value: '12' }))
+
+        // Passing '12abc' should NOT match score '12' via prefix-parsing; it should evaluate to 1 = 0
+        const result = await recordService.list({
+            tableId: table.id,
+            projectId: project.id,
+            cursorRequest: null,
+            limit: 10,
+            filters: [{ fieldId: numField.id, operator: FilterOperator.EQ, value: '12abc' }],
+        })
+        expect(result.data).toHaveLength(0)
+
+        const gtResult = await recordService.list({
+            tableId: table.id,
+            projectId: project.id,
+            cursorRequest: null,
+            limit: 10,
+            filters: [{ fieldId: numField.id, operator: FilterOperator.GT, value: '12abc' }],
+        })
+        expect(gtResult.data).toHaveLength(0)
+    })
+
+    it('should paginate efficiently across large datasets under bounded time budget', async () => {
+        const { project, table } = await setupTableWithField()
+
+        const records = []
+        for (let i = 0; i < 60; i++) {
+            const rec = createMockRecord({ tableId: table.id, projectId: project.id })
+            records.push(rec)
+        }
+        await db.save('record', records)
+
+        const start = performance.now()
+        let cursor = null
+        let totalFetched = 0
+        for (let page = 0; page < 3; page++) {
+            const res = await recordService.list({
+                tableId: table.id,
+                projectId: project.id,
+                cursorRequest: cursor,
+                limit: 20,
+                filters: null,
+            })
+            totalFetched += res.data.length
+            cursor = res.next
+        }
+        const elapsed = performance.now() - start
+
+        expect(totalFetched).toBe(60)
+        expect(elapsed).toBeLessThan(3000)
+    })
 })
