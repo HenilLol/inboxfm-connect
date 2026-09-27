@@ -131,3 +131,30 @@ export class SSRFBlockedError extends ExecutionError {
         )
     }
 }
+
+export class PropsValidationError extends ExecutionError {
+    public readonly fieldErrors: Record<string, unknown>
+
+    constructor(fieldErrors: Record<string, unknown>, cause?: unknown) {
+        const readable = PropsValidationError.formatHumanReadable(fieldErrors)
+        super('PropsValidationError', readable, ExecutionErrorType.USER, cause)
+        this.fieldErrors = fieldErrors
+    }
+
+    public static formatHumanReadable(fieldErrors: Record<string, unknown>): string {
+        const errorEntries = Object.entries(fieldErrors)
+        if (errorEntries.length === 0) {
+            return 'Property validation failed'
+        }
+        const formattedFields = errorEntries.map(([key, val]) => {
+            if (Array.isArray(val)) {
+                return `${key}: ${val.join(', ')}`
+            }
+            if (typeof val === 'object' && val !== null) {
+                return `${key}: ${PropsValidationError.formatHumanReadable(val as Record<string, unknown>)}`
+            }
+            return `${key}: ${String(val)}`
+        })
+        return `Property validation failed: ${formattedFields.join('; ')}`
+    }
+}
