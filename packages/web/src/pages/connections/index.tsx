@@ -1,4 +1,4 @@
-import { KeyRound, PencilLine, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, KeyRound, PencilLine, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -42,11 +42,14 @@ function ListSkeleton() {
 export default function ConnectionsPage() {
   const navigate = useNavigate()
   const pieceLookup = usePieceLookup()
-  const { data, isLoading, isError, refetch } = useConnectionsQuery({ limit: 100 })
+  const [cursor, setCursor] = useState<string | undefined>(undefined)
+  const { data, isLoading, isError, refetch } = useConnectionsQuery({ limit: 100, cursor })
   const deleteConnection = useDeleteConnection()
   const [deleteTarget, setDeleteTarget] = useState<AppConnection | null>(null)
 
   const connections = data?.data ?? []
+  const hasNext = !!data?.next
+  const hasPrevious = !!data?.previous
 
   const handleDelete = () => {
     if (!deleteTarget) return
@@ -187,6 +190,38 @@ export default function ConnectionsPage() {
               </tbody>
             </table>
           </div>
+          {(hasNext || hasPrevious || connections.length > 0) && (
+            <div className="flex items-center justify-between border-t border-border px-4 py-3 bg-muted/20 text-xs text-muted-foreground">
+              <span data-testid="connections-count">
+                Showing {connections.length} connection{connections.length === 1 ? '' : 's'}
+                {hasNext && ' (more available)'}
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!hasPrevious || isLoading}
+                  onClick={() => setCursor(data?.previous ?? undefined)}
+                  data-testid="connections-prev-page"
+                  className="gap-1 h-7 text-xs"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  <span>Previous</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!hasNext || isLoading}
+                  onClick={() => setCursor(data?.next ?? undefined)}
+                  data-testid="connections-next-page"
+                  className="gap-1 h-7 text-xs"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 

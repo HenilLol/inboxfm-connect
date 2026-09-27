@@ -200,4 +200,62 @@ describe('Connections page', () => {
     expect(text).not.toContain('client_secret')
     expect(text).not.toContain('refresh_token')
   }, 15000)
+
+  it('renders pagination pager controls and row count reflecting more available when next cursor exists', async () => {
+    let requestedCursor: string | null = null
+    stubApi([
+      {
+        match: LIST_MATCH,
+        respond: (url) => {
+          requestedCursor = url.searchParams.get('cursor')
+          if (requestedCursor === 'cursor_page_2') {
+            return {
+              status: 200,
+              body: {
+                data: [slackConnection('conn_3', 'Secondary Slack')],
+                next: null,
+                previous: 'cursor_page_1',
+              },
+            }
+          }
+          return {
+            status: 200,
+            body: {
+              data: [githubConnection('conn_1', 'Mihir GitHub')],
+              next: 'cursor_page_2',
+              previous: null,
+            },
+          }
+        },
+      },
+      {
+        match: (url) => url.pathname === '/api/v1/integrations',
+        respond: () => ({ status: 200, body: seekPage([githubSummary(), slackSummary()]) }),
+      },
+    ])
+
+    const container = renderConnections()
+    await waitFor(() => container.textContent?.includes('Mihir GitHub') === true)
+
+    const countSpan = container.querySelector('[data-testid="connections-count"]')
+    expect(countSpan?.textContent).toContain('Showing 1 connection (more available)')
+
+    const prevButton = container.querySelector<HTMLButtonElement>('[data-testid="connections-prev-page"]')
+    const nextButton = container.querySelector<HTMLButtonElement>('[data-testid="connections-next-page"]')
+    expect(prevButton?.disabled).toBe(true)
+    expect(nextButton?.disabled).toBe(false)
+
+    await act(async () => {
+      nextButton?.click()
+    })
+
+    await waitFor(() => container.textContent?.includes('Secondary Slack') === true)
+    expect(requestedCursor).toBe('cursor_page_2')
+    expect(container.querySelector('[data-testid="connections-count"]')?.textContent).toContain(
+      'Showing 1 connection'
+    )
+    expect(container.querySelector('[data-testid="connections-count"]')?.textContent).not.toContain(
+      '(more available)'
+    )
+  }, 15000)
 })

@@ -226,7 +226,7 @@ export default function ActivityPage() {
 
         <div className="flex items-center gap-2">
           <label htmlFor="activity-limit-filter" className="text-xs font-semibold text-muted-foreground">
-            Per page
+            Limit
           </label>
           <select
             id="activity-limit-filter"
