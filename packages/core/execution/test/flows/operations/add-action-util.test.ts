@@ -33,6 +33,34 @@ describe('addActionUtils.replaceOldStepNameWithNewOne (Issue #167)', () => {
         expect(result).toBe('{{ { key: steps.step_2.val, suffix: "}}" } }}')
     })
 
+    it('renames step references inside expressions with backtick template literals containing }}', () => {
+        const input = '{{ `a}}b` + steps.step_1.x }}'
+        const result = addActionUtils.replaceOldStepNameWithNewOne({
+            input,
+            oldStepName: 'step_1',
+            newStepName: 'step_2',
+        })
+        expect(result).toBe('{{ `a}}b` + steps.step_2.x }}')
+    })
+
+    it('renames step references in expressions with escaped quotes inside string literals', () => {
+        const inputSingle = "{{ steps['It\\'s'].x + steps.step_1.x }}"
+        const resultSingle = addActionUtils.replaceOldStepNameWithNewOne({
+            input: inputSingle,
+            oldStepName: 'step_1',
+            newStepName: 'step_2',
+        })
+        expect(resultSingle).toBe("{{ steps['It\\'s'].x + steps.step_2.x }}")
+
+        const inputDouble = '{{ steps["a\\"b"].x + steps.step_1.x }}'
+        const resultDouble = addActionUtils.replaceOldStepNameWithNewOne({
+            input: inputDouble,
+            oldStepName: 'step_1',
+            newStepName: 'step_2',
+        })
+        expect(resultDouble).toBe('{{ steps["a\\"b"].x + steps.step_2.x }}')
+    })
+
     it('escapes regex special characters in step names without crashing or corrupting matches', () => {
         const input = '{{ step$1.output }}'
         const result = addActionUtils.replaceOldStepNameWithNewOne({
@@ -43,6 +71,16 @@ describe('addActionUtils.replaceOldStepNameWithNewOne (Issue #167)', () => {
         expect(result).toBe('{{ step$2.output }}')
     })
 
+    it('treats dollar patterns in newStepName literally without regex interpolation ($&, $`, $\', $$)', () => {
+        const input = '{{ step_1.output }}'
+        const result = addActionUtils.replaceOldStepNameWithNewOne({
+            input,
+            oldStepName: 'step_1',
+            newStepName: 'step$&_$`_$1_$$',
+        })
+        expect(result).toBe('{{ step$&_$`_$1_$$.output }}')
+    })
+
     it('respects word boundaries so step_10 is not renamed when replacing step_1', () => {
         const input = '{{ step_10.output + step_1.output }}'
         const result = addActionUtils.replaceOldStepNameWithNewOne({
@@ -51,6 +89,16 @@ describe('addActionUtils.replaceOldStepNameWithNewOne (Issue #167)', () => {
             newStepName: 'step_2',
         })
         expect(result).toBe('{{ step_10.output + step_2.output }}')
+    })
+
+    it('returns original input unchanged when token is unterminated (failure path)', () => {
+        const input = '{{ steps.step_1.output'
+        const result = addActionUtils.replaceOldStepNameWithNewOne({
+            input,
+            oldStepName: 'step_1',
+            newStepName: 'step_2',
+        })
+        expect(result).toBe(input)
     })
 
     it('returns original input unchanged when no mustache tokens are present', () => {

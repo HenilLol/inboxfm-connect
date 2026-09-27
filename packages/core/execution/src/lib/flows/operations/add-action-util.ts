@@ -24,6 +24,9 @@ type ReplaceOldStepNameWithNewOneProps = {
     newStepName: string
 }
 
+/**
+ * Replaces occurrences of `oldStepName` with `newStepName` inside mustache expressions `{{ ... }}` in `input`.
+ */
 function replaceOldStepNameWithNewOne({
     input,
     oldStepName,
@@ -41,7 +44,7 @@ function replaceOldStepNameWithNewOne({
 
     for (const token of tokens) {
         result += input.slice(lastIndex, token.index)
-        const replacedInner = token.inner.replaceAll(stepRegex, newStepName)
+        const replacedInner = token.inner.replaceAll(stepRegex, () => newStepName)
         result += `{{${replacedInner}}}`
         lastIndex = token.index + token.token.length
     }
