@@ -73,7 +73,11 @@ describe('fetchAllWorkspaceUsers', () => {
     const mockNotion = {
       users: {
         list: vi.fn().mockResolvedValue({
-          results: [{ id: 'user', name: 'Infinite User', type: 'person' }],
+          results: Array.from({ length: 100 }, (_, i) => ({
+            id: `user-${i}`,
+            name: `User ${i}`,
+            type: 'person',
+          })),
           has_more: true,
           next_cursor: 'endless-cursor',
         }),
@@ -82,6 +86,6 @@ describe('fetchAllWorkspaceUsers', () => {
 
     const result = await fetchAllWorkspaceUsers(mockNotion as any);
     expect(mockNotion.users.list).toHaveBeenCalledTimes(50);
-    expect(result).toHaveLength(50);
+    expect(result).toHaveLength(5000);
   });
 });

@@ -16,11 +16,11 @@ export default defineConfig({
       ),
       '@inboxfm-connect/pieces-framework': path.resolve(
         repoRoot,
-        'packages/pieces/framework/src/index.ts'
+        'packages/integrations/framework/src/index.ts'
       ),
       '@inboxfm-connect/pieces-common': path.resolve(
         repoRoot,
-        'packages/pieces/common/src/index.ts'
+        'packages/integrations/common/src/index.ts'
       ),
     },
   },
