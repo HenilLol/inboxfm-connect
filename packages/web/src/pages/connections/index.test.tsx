@@ -258,4 +258,43 @@ describe('Connections page', () => {
       '(more available)'
     )
   }, 15000)
+
+  it('shows a page-specific empty state instead of No connections yet past the first page', async () => {
+    stubApi([
+      {
+        match: LIST_MATCH,
+        respond: (url) => {
+          if (url.searchParams.get('cursor') === 'cursor_page_2') {
+            return {
+              status: 200,
+              body: { ...seekPage([]), previous: 'cursor_page_1' },
+            }
+          }
+          return {
+            status: 200,
+            body: {
+              ...seekPage([githubConnection('conn_1', 'Mihir GitHub')]),
+              next: 'cursor_page_2',
+            },
+          }
+        },
+      },
+      {
+        match: (url) => url.pathname === '/api/v1/integrations',
+        respond: () => ({
+          status: 200,
+          body: seekPage([githubSummary(), slackSummary()]),
+        }),
+      },
+    ])
+    const container = renderConnections()
+
+    await waitFor(() => container.textContent?.includes('Mihir GitHub') === true)
+    await clickTextButton('Next')
+    await waitFor(() => container.textContent?.includes('No connections on this page') === true)
+    expect(container.textContent).not.toContain('No connections yet')
+
+    await clickTextButton('Previous page')
+    await waitFor(() => container.textContent?.includes('Mihir GitHub') === true)
+  }, 15000)
 })

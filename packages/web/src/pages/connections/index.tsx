@@ -99,10 +99,21 @@ export default function ConnectionsPage() {
       ) : connections.length === 0 ? (
         <EmptyState
           icon={KeyRound}
-          title="No connections yet"
-          description="Connect an account from the integrations catalog so authenticated tools can execute for this project."
-          actionLabel="Browse Integrations"
-          onAction={() => navigate('/integrations')}
+          title={cursor === undefined ? 'No connections yet' : 'No connections on this page'}
+          description={
+            cursor === undefined
+              ? 'Connect an account from the integrations catalog so authenticated tools can execute for this project.'
+              : 'This page came back empty. Your connections are still there — go back to keep browsing.'
+          }
+          actionLabel={cursor === undefined ? 'Browse Integrations' : 'Previous page'}
+          onAction={
+            cursor === undefined
+              ? () => navigate('/integrations')
+              : () => {
+                  if (data?.previous) setCursor(data.previous)
+                  else setCursor(undefined)
+                }
+          }
         />
       ) : (
         <Card className="overflow-hidden rounded-xl shadow-xs">
