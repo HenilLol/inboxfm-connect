@@ -54,7 +54,7 @@ function successRoutes(): StubRoute[] {
       }),
     },
     {
-      match: (url) => url.pathname.includes('/app-connections'),
+      match: (url) => url.pathname.includes('/connections'),
       respond: () => ({
         status: 200,
         body: {
@@ -159,8 +159,8 @@ describe('DashboardPage', () => {
     expect(container.textContent).not.toContain('Across 0 integrations')
 
     // Find and click the Retry button on the Available Tools card
-    const retryButtons = Array.from(container.querySelectorAll('button')).filter(
-      (b) => b.textContent?.trim() === 'Retry'
+    const retryButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button[data-testid="retry-button"]')
     )
     expect(retryButtons.length).toBeGreaterThanOrEqual(1)
 
@@ -173,13 +173,27 @@ describe('DashboardPage', () => {
   })
 
   it('surfaces inline error state and retry for connections without rendering zero (#172)', async () => {
+    let callCount = 0
     stubApi([
       ...successRoutes().filter(
-        (r) => !r.match(new URL('http://localhost/api/v1/app-connections'), 'GET')
+        (r) => !r.match(new URL('http://localhost/api/v1/connections'), 'GET')
       ),
       {
-        match: (url) => url.pathname.includes('/app-connections'),
-        respond: () => ({ status: 500, body: { message: 'Failed connections' } }),
+        match: (url) => url.pathname.includes('/connections'),
+        respond: () => {
+          callCount++
+          if (callCount === 1) {
+            return { status: 500, body: { message: 'Failed connections' } }
+          }
+          return {
+            status: 200,
+            body: {
+              data: [
+                { id: 'c1', pieceName: 'slack', status: 'ACTIVE' },
+              ],
+            },
+          }
+        },
       },
     ])
 
@@ -188,16 +202,40 @@ describe('DashboardPage', () => {
 
     // Should not show 0 total credentials
     expect(container.textContent).not.toContain('0 total credentials')
+
+    const retryButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button[data-testid="retry-button"]')
+    )
+    expect(retryButtons.length).toBeGreaterThanOrEqual(1)
+    act(() => {
+      retryButtons[0].click()
+    })
+    await waitFor(() => container.textContent?.includes('1 total credentials') === true)
+    expect(callCount).toBe(2)
   })
 
   it('surfaces inline error state and retry for trigger bindings without rendering zero (#172)', async () => {
+    let callCount = 0
     stubApi([
       ...successRoutes().filter(
         (r) => !r.match(new URL('http://localhost/api/v1/trigger-bindings'), 'GET')
       ),
       {
         match: (url) => url.pathname.includes('/trigger-bindings'),
-        respond: () => ({ status: 500, body: { message: 'Failed triggers' } }),
+        respond: () => {
+          callCount++
+          if (callCount === 1) {
+            return { status: 500, body: { message: 'Failed triggers' } }
+          }
+          return {
+            status: 200,
+            body: {
+              data: [
+                { id: 'tb1', status: 'ENABLED' },
+              ],
+            },
+          }
+        },
       },
     ])
 
@@ -205,23 +243,57 @@ describe('DashboardPage', () => {
     await waitFor(() => container.textContent?.includes('Failed to load') === true)
 
     expect(container.textContent).not.toContain('0 configured event listeners')
+
+    const retryButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button[data-testid="retry-button"]')
+    )
+    expect(retryButtons.length).toBeGreaterThanOrEqual(1)
+    act(() => {
+      retryButtons[0].click()
+    })
+    await waitFor(() => container.textContent?.includes('1 configured event listeners') === true)
+    expect(callCount).toBe(2)
   })
 
   it('surfaces inline error state and retry for scheduled tasks without rendering zero (#172)', async () => {
+    let callCount = 0
     stubApi([
       ...successRoutes().filter(
         (r) => !r.match(new URL('http://localhost/api/v1/scheduled-tasks'), 'GET')
       ),
       {
         match: (url) => url.pathname.includes('/scheduled-tasks'),
-        respond: () => ({ status: 500, body: { message: 'Failed schedules' } }),
+        respond: () => {
+          callCount++
+          if (callCount === 1) {
+            return { status: 500, body: { message: 'Failed schedules' } }
+          }
+          return {
+            status: 200,
+            body: {
+              data: [
+                { id: 'st1', status: 'ENABLED' },
+              ],
+            },
+          }
+        },
       },
     ])
 
     const container = renderDashboard()
     await waitFor(() => container.textContent?.includes('Failed to load') === true)
 
-    expect(container.textContent).not.toContain('0 active cron schedules')
+    expect(container.textContent).not.toContain('0 cron schedules')
+
+    const retryButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>('button[data-testid="retry-button"]')
+    )
+    expect(retryButtons.length).toBeGreaterThanOrEqual(1)
+    act(() => {
+      retryButtons[0].click()
+    })
+    await waitFor(() => container.textContent?.includes('1 cron schedules') === true)
+    expect(callCount).toBe(2)
   })
 
   it('surfaces ErrorState on executions failure and never renders empty state (#172)', async () => {

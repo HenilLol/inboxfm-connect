@@ -110,6 +110,7 @@ export default function DashboardPage() {
                 <Button
                   variant="ghost"
                   size="xs"
+                  data-testid="retry-button"
                   className="h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
                   onClick={() => void refetchIntegrations()}
                 >
@@ -146,6 +147,7 @@ export default function DashboardPage() {
                 <Button
                   variant="ghost"
                   size="xs"
+                  data-testid="retry-button"
                   className="h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
                   onClick={() => void refetchConnections()}
                 >
@@ -182,6 +184,7 @@ export default function DashboardPage() {
                 <Button
                   variant="ghost"
                   size="xs"
+                  data-testid="retry-button"
                   className="h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
                   onClick={() => void refetchTriggers()}
                 >
@@ -218,6 +221,7 @@ export default function DashboardPage() {
                 <Button
                   variant="ghost"
                   size="xs"
+                  data-testid="retry-button"
                   className="h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
                   onClick={() => void refetchSchedules()}
                 >
@@ -230,7 +234,7 @@ export default function DashboardPage() {
                   {activeSchedulesCount}
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  {scheduledTasks?.length || 0} active cron schedules
+                  {scheduledTasks?.length || 0} cron schedules
                 </p>
               </>
             )}
