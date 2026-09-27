@@ -17,12 +17,31 @@ export function extractMustacheTokens(input: string): MustacheToken[] {
             const start = i
             let depth = 1
             i += 2
-            while (i < input.length - 1 && depth > 0) {
-                if (input[i] === '{' && input[i + 1] === '{') {
-                    depth++; i += 2
+            let quoteChar: string | null = null
+            while (i < input.length && depth > 0) {
+                if (quoteChar !== null) {
+                    if (input[i] === '\\') {
+                        i += 2
+                    }
+                    else if (input[i] === quoteChar) {
+                        quoteChar = null
+                        i++
+                    }
+                    else {
+                        i++
+                    }
                 }
-                else if (input[i] === '}' && input[i + 1] === '}') {
-                    depth--; i += 2
+                else if (input[i] === "'" || input[i] === '"' || input[i] === '`') {
+                    quoteChar = input[i]
+                    i++
+                }
+                else if (i < input.length - 1 && input[i] === '{' && input[i + 1] === '{') {
+                    depth++
+                    i += 2
+                }
+                else if (i < input.length - 1 && input[i] === '}' && input[i + 1] === '}') {
+                    depth--
+                    i += 2
                 }
                 else {
                     i++
