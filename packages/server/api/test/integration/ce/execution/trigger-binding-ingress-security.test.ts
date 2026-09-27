@@ -171,7 +171,16 @@ describe('POST /v1/trigger-bindings/:id/run — public ingress security', () => 
         expect(spy).toHaveBeenCalledTimes(1)
         const passedJobData = spy.mock.calls[0][0] as { webhookUrl: string }
         expect(passedJobData.webhookUrl).not.toContain('localhost:3000')
-        expect(passedJobData.webhookUrl).toContain(`/v1/trigger-bindings/${binding.id}/webhook`)
+        expect(passedJobData.webhookUrl).toContain(`/v1/trigger-bindings/${binding.id}/run`)
+
+        // Verify that the handed webhook URL resolves against the served fastify route (not 404)
+        const parsedUrl = new URL(passedJobData.webhookUrl)
+        const webhookResponse = await app!.inject({
+            method: 'POST',
+            url: parsedUrl.pathname,
+            payload: { message: 'verified-ingress' },
+        })
+        expect(webhookResponse.statusCode).toBe(StatusCodes.OK)
     })
 })
 

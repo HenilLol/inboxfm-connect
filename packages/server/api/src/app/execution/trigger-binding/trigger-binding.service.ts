@@ -260,7 +260,7 @@ async function unsyncTriggerSchedule(id: string): Promise<void> {
 
 const engineHookLog = apLogger.create({ bindings: {} })
 
-async function executeEngineHook<HT extends TriggerHookType>({ binding, hookType, triggerPayload }: ExecuteEngineHookParams<HT>): Promise<ExecuteTriggerResponse<HT>> {
+export async function executeEngineHook<HT extends TriggerHookType>({ binding, hookType, triggerPayload }: ExecuteEngineHookParams<HT>): Promise<ExecuteTriggerResponse<HT>> {
     const piece: PiecePackage = {
         pieceName: binding.pieceName,
         pieceVersion: binding.pieceVersion,
@@ -289,7 +289,7 @@ async function executeEngineHook<HT extends TriggerHookType>({ binding, hookType
             status: binding.status,
         },
         webhookUrl: await domainHelper.getPublicApiUrl({
-            path: `v1/trigger-bindings/${binding.id}/webhook`,
+            path: `v1/trigger-bindings/${binding.id}/run`,
         }),
         triggerPayload,
         piece,
@@ -343,7 +343,7 @@ type ExecuteRunParams = {
     triggerPayload?: unknown
 }
 
-type ExecuteEngineHookParams<HT extends TriggerHookType> = {
+export type ExecuteEngineHookParams<HT extends TriggerHookType> = {
     binding: TriggerBinding
     hookType: HT
     triggerPayload?: unknown
