@@ -78,6 +78,9 @@ describe('Sidebar', () => {
   })
 
   it('shows Not signed in for the session user with an empty email', () => {
+    // Explicit session user with empty email string (covers auth-context fallback)
+    localStorage.setItem('ap-user', JSON.stringify({ id: 'u_1', firstName: 'Dev', email: '' }))
+    apiClient.setToken('test-token')
     const container = mountAt(<Sidebar />, { route: '/' })
 
     expect(container.textContent).toContain('Not signed in')
