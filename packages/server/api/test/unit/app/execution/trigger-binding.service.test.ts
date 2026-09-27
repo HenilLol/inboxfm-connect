@@ -70,4 +70,17 @@ describe('TriggerBinding Domain & Safety Audit', () => {
             expect(parsed.connectionId).toBeNull()
         })
     })
+
+    describe('Webhook URL Derivation (#159)', () => {
+        it('derives webhook URL using domainHelper without hardcoded localhost', async () => {
+            const domainHelper = (await import('../../../../src/app/helper/domain-helper')).domainHelper
+            const bindingId = 'tb_test_webhook_123'
+            const url = await domainHelper.getPublicApiUrl({
+                path: `v1/trigger-bindings/${bindingId}/webhook`,
+            })
+
+            expect(url).toContain(`/api/v1/trigger-bindings/${bindingId}/webhook`)
+            expect(url.endsWith(`/api/v1/trigger-bindings/${bindingId}/webhook`)).toBe(true)
+        })
+    })
 })

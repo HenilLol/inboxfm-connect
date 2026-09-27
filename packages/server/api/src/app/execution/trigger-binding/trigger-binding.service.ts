@@ -17,6 +17,7 @@ import {
     WorkerJobType,
 } from '@inboxfm-connect/shared'
 import { repoFactory } from '../../core/db/repo-factory'
+import { domainHelper } from '../../helper/domain-helper'
 import { userInteractionWatcher } from '../../helper/user-interaction/user-interaction-watcher'
 import { projectExecutionConcurrencyGuard } from '../concurrency/project-execution-concurrency-guard'
 import { executionService } from '../execution.service'
@@ -287,7 +288,9 @@ async function executeEngineHook<HT extends TriggerHookType>({ binding, hookType
             propertySettings: binding.propertySettings,
             status: binding.status,
         },
-        webhookUrl: `http://localhost:3000/v1/trigger-bindings/${binding.id}/webhook`,
+        webhookUrl: await domainHelper.getPublicApiUrl({
+            path: `v1/trigger-bindings/${binding.id}/webhook`,
+        }),
         triggerPayload,
         piece,
         requestId: apId(),

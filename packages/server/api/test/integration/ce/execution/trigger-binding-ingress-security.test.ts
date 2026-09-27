@@ -159,6 +159,20 @@ describe('POST /v1/trigger-bindings/:id/run — public ingress security', () => 
         expect(created.every((e: { projectId: string }) => e.projectId === ctx.project.id)).toBe(true)
         expect(await executionsIn(ctx.project.id)).toHaveLength(3)
     })
+
+    it('hands the engine a webhookUrl derived from the configured public API URL without localhost literals (#159)', async () => {
+        const ctx = await createTestContext(app!)
+        const binding = await saveBinding(ctx, TriggerBindingStatus.ENABLED)
+        const spy = vi.spyOn(userInteractionWatcher, 'submitAndWaitForResponse').mockResolvedValue({ output: [] } as never)
+
+        const response = await runUnauthenticated(binding.id)
+        expect(response.statusCode).toBe(StatusCodes.OK)
+
+        expect(spy).toHaveBeenCalledTimes(1)
+        const passedJobData = spy.mock.calls[0][0] as { webhookUrl: string }
+        expect(passedJobData.webhookUrl).not.toContain('localhost:3000')
+        expect(passedJobData.webhookUrl).toContain(`/v1/trigger-bindings/${binding.id}/webhook`)
+    })
 })
 
 describe('Trigger binding tenant-scoped reads stay scoped', () => {
