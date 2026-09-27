@@ -633,7 +633,7 @@ describe('AppConnection CE API', () => {
                 error: {
                     code: 'ENTITY_NOT_FOUND',
                     params: {
-                        entityType: 'app_connection',
+                        entityType: 'AppConnection',
                         entityId: otherId,
                     },
                 },
@@ -667,7 +667,7 @@ describe('AppConnection CE API', () => {
             const body = response?.json()
             expect(body.code).toBe('ENTITY_NOT_FOUND')
             expect(body.params).toEqual({
-                entityType: 'app_connection',
+                entityType: 'AppConnection',
                 entityId: platformConn.id,
             })
         })

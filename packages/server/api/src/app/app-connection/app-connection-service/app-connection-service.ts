@@ -118,7 +118,7 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
             throw new ActivepiecesError({
                 code: ErrorCode.ENTITY_NOT_FOUND,
                 params: {
-                    entityType: 'app_connection',
+                    entityType: 'AppConnection',
                     entityId: id,
                 },
             })
@@ -136,7 +136,7 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
             throw new ActivepiecesError({
                 code: ErrorCode.ENTITY_NOT_FOUND,
                 params: {
-                    entityType: 'app_connection',
+                    entityType: 'AppConnection',
                     entityId: id,
                 },
             })
