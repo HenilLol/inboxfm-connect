@@ -31,6 +31,7 @@ type ReplaceCliOptions = {
     deployIntegrations?: boolean
     inspectOnly?: boolean
     connectionMap?: string[]
+    providerMap?: string[]
     connectionMappingFile?: string
     connectionBootstrap?: string
     rotateMcpToken?: boolean
@@ -154,6 +155,7 @@ export const projectReplaceCommand = new Command('replace')
     .option('--deploy-integrations', 'Deploy missing custom integrations automatically during replace', false)
     .option('--inspect-only', 'Inspect and report missing integrations without applying any changes', false)
     .option('--connection-map <mapping...>', 'Map source connection externalId to destination externalId (e.g. source=dest)')
+    .option('--provider-map <mapping...>', 'Map source AI provider ID to destination provider ID (e.g. source=dest)')
     .option('--connection-mapping-file <path>', 'Path to file containing connection mappings or bootstrap secrets')
     .option('--connection-bootstrap <json>', 'JSON string of connection bootstrap credentials')
     .option('--force', 'Bypass preflight warnings', false)
@@ -513,3 +515,17 @@ export const projectReplaceCommand = new Command('replace')
             process.exit(EXIT_VALIDATION)
         }
     })
+
+export {
+    EXIT_SUCCESS,
+    EXIT_PREFLIGHT,
+    EXIT_VALIDATION,
+    EXIT_DRIFT,
+    EXIT_AUTH,
+    EXIT_TRANSPORT,
+    EXIT_SERVER,
+    parseConnectionMappings,
+    parseMappingContent,
+}
+export type { ReplaceCliOptions }
+
