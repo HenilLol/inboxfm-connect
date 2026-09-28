@@ -68,15 +68,31 @@ describe('Project Replace E2E Multi-Project Fixture (#128)', () => {
             [projectId],
         )
         const connections = await ds.query(
-            'SELECT "id", "externalId", "pieceName", "type" FROM "app_connection" WHERE "platformId" = $1 ORDER BY "id" ASC',
-            [destCtx.platform.id],
+            'SELECT "id", "externalId", "pieceName", "type" FROM "app_connection" WHERE $1 = ANY("projectIds") ORDER BY "id" ASC',
+            [projectId],
         )
         const scheduledTasks = await ds.query(
             'SELECT "id", "prompt", "cronExpression", "status" FROM "scheduled_task" WHERE "projectId" = $1 ORDER BY "id" ASC',
             [projectId],
         )
+        const triggerBindings = await ds.query(
+            'SELECT "id", "pieceName", "triggerName" FROM "trigger_binding" WHERE "projectId" = $1 ORDER BY "id" ASC',
+            [projectId],
+        )
+        const mcpServers = await ds.query(
+            'SELECT "id", "token" FROM "mcp_server" WHERE "projectId" = $1 ORDER BY "id" ASC',
+            [projectId],
+        )
 
-        const canonicalPayload = JSON.stringify({ tables, fields, agents, connections, scheduledTasks })
+        const canonicalPayload = JSON.stringify({
+            tables,
+            fields,
+            agents,
+            connections,
+            scheduledTasks,
+            triggerBindings,
+            mcpServers,
+        })
         return crypto.createHash('sha256').update(canonicalPayload).digest('hex')
     }
 
@@ -269,10 +285,43 @@ describe('Project Replace E2E Multi-Project Fixture (#128)', () => {
         expect(destConnAfter.projectIds).toEqual([destCtx.project.id])
         expect(destConnAfter.externalId).toBe('conn-dest-slack')
 
-        // Verify destination tables and fields belong strictly to destination project
+        // Verify source project entities remain intact and unmutated
+        const sourceAgents = await agentService.listByProjectId({ projectId: sourceCtx.project.id })
+        expect(sourceAgents.length).toBe(1)
+        expect(sourceAgents[0].id).toBe(sourceAgent.id)
+        expect(sourceAgents[0].projectId).toBe(sourceCtx.project.id)
+
+        const sourceTasks = await scheduledTaskService.list({
+            projectId: sourceCtx.project.id,
+            platformId: sourceCtx.platform.id,
+        })
+        expect(sourceTasks.data.length).toBe(1)
+        expect(sourceTasks.data[0].id).toBe(sourceTask.id)
+        expect(sourceTasks.data[0].projectId).toBe(sourceCtx.project.id)
+
+        const sourceTables = await tableService.list({ projectId: sourceCtx.project.id })
+        expect(sourceTables.data.length).toBe(1)
+        expect(sourceTables.data[0].id).toBe(sourceTable.id)
+        expect(sourceTables.data[0].projectId).toBe(sourceCtx.project.id)
+
+        // Verify destination entities belong strictly to destination project
+        const destAgents = await agentService.listByProjectId({ projectId: destCtx.project.id })
+        expect(destAgents.length).toBe(1)
+        expect(destAgents[0].id).not.toBe(sourceAgent.id)
+        expect(destAgents[0].projectId).toBe(destCtx.project.id)
+
+        const destTasks = await scheduledTaskService.list({
+            projectId: destCtx.project.id,
+            platformId: destCtx.platform.id,
+        })
+        expect(destTasks.data.length).toBe(1)
+        expect(destTasks.data[0].id).not.toBe(sourceTask.id)
+        expect(destTasks.data[0].projectId).toBe(destCtx.project.id)
+
         const destTables = await tableService.list({ projectId: destCtx.project.id })
         expect(destTables.data.length).toBe(1)
         expect(destTables.data[0].name).toBe('Customers')
+        expect(destTables.data[0].id).not.toBe(sourceTable.id)
         expect(destTables.data[0].projectId).toBe(destCtx.project.id)
 
         const destFields = await fieldService.getAll({
