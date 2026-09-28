@@ -64,7 +64,7 @@ export function useConnectionsQuery(params?: ConnectionsListParams) {
   return useQuery({
     queryKey: ['connections', params ?? {}, projectId],
     queryFn: () => connectionsApi.list(params),
-    meta: { showErrorToast: true, showErrorDialog: true },
+    meta: { showErrorDialog: true },
   })
 }
 
@@ -102,9 +102,7 @@ export function useProjectApiKeysQuery() {
   return useQuery({
     queryKey: ['project-api-keys', projectId],
     queryFn: () => apiKeysApi.list(),
-    // `showErrorToast` (not `showErrorDialog`) is the key `query-client.ts` actually
-    // checks — this query renders the API Keys page's primary table.
-    meta: { showErrorToast: true },
+    meta: { showErrorDialog: true },
   })
 }
 
@@ -130,7 +128,7 @@ export function useDeleteProjectApiKey() {
 
 /**
  * Minor/auxiliary query: only used to gate the Platform API Keys section, so it
- * intentionally has no `showErrorToast` — a failure here just leaves the platform
+ * intentionally has no `showErrorDialog` — a failure here just leaves the platform
  * key section hidden rather than surfacing a distracting toast.
  */
 export function usePlatformQuery({ platformId }: { platformId?: string }) {
@@ -146,7 +144,7 @@ export function usePlatformApiKeysQuery({ enabled }: { enabled: boolean }) {
     queryKey: ['platform-api-keys'],
     queryFn: () => platformApiKeysApi.list(),
     enabled,
-    meta: { showErrorToast: true },
+    meta: { showErrorDialog: true },
   })
 }
 
@@ -204,9 +202,7 @@ export function useTriggerBindingsQuery() {
     queryKey: ['trigger-bindings', apiClient.getProjectId()],
     queryFn: () => automationsApi.listTriggerBindings(),
     select: (page) => page.data,
-    // Every current call site (Trigger Bindings list, Dashboard summary) renders
-    // this as primary data, so a fetch failure should surface a toast.
-    meta: { showErrorToast: true },
+    meta: { showErrorDialog: true },
   })
 }
 
@@ -292,9 +288,7 @@ export function useScheduledTasksQuery() {
     queryKey: ['scheduled-tasks', apiClient.getProjectId()],
     queryFn: () => automationsApi.listScheduledTasks(),
     select: (page) => page.data,
-    // Every current call site (Scheduled Tasks list, Dashboard summary) renders
-    // this as primary data, so a fetch failure should surface a toast.
-    meta: { showErrorToast: true },
+    meta: { showErrorDialog: true },
   })
 }
 
@@ -361,9 +355,7 @@ export function useMcpServerQuery(projectId?: string) {
     queryKey: ['mcp-server', effectiveProjectId],
     queryFn: () => apiClient.get<PopulatedMcpServer>(`/projects/${encodeURIComponent(effectiveProjectId ?? '')}/mcp-server`),
     enabled: !!effectiveProjectId,
-    // Sole call site is the MCP Hub page, where this is the primary data driving
-    // the whole page.
-    meta: { showErrorToast: true },
+    meta: { showErrorDialog: true },
   })
 }
 
@@ -418,9 +410,7 @@ export function useExecutionsQuery(params?: { status?: ExecutionStatus; limit?: 
     queryKey: ['executions', params ?? {}, projectId],
     queryFn: () => executionsApi.list({ status: params?.status, limit: params?.limit }),
     placeholderData: keepPreviousData,
-    // Every current call site (Activity list, Dashboard "Recent Executions") renders
-    // this as primary data, so a fetch failure should surface a toast.
-    meta: { showErrorToast: true },
+    meta: { showErrorDialog: true },
   })
 }
 

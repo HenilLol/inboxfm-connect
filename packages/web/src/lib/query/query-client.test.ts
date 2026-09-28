@@ -11,20 +11,20 @@ vi.mock('sonner', () => ({
   },
 }))
 
-describe('QueryClient Error Handling & Toast Feedback (Issue #29 / DESIGN_SYSTEM.md §6)', () => {
+describe('QueryClient Error Handling & Toast Feedback (Issue #171 / AGENTS.md)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     queryClient.clear()
   })
 
-  it('triggers sonner toast error when a query with showErrorToast: true fails', async () => {
+  it('triggers sonner toast error when a query with showErrorDialog: true fails', async () => {
     const error = new ApiClientError(500, 'Internal Server Error')
 
     await expect(
       queryClient.fetchQuery({
         queryKey: ['connections-fail-test'],
         queryFn: () => Promise.reject(error),
-        meta: { showErrorToast: true },
+        meta: { showErrorDialog: true },
         retry: false,
       })
     ).rejects.toThrow()
@@ -40,7 +40,7 @@ describe('QueryClient Error Handling & Toast Feedback (Issue #29 / DESIGN_SYSTEM
       queryClient.fetchQuery({
         queryKey: ['fallback-error-test'],
         queryFn: () => Promise.reject(new Error('')),
-        meta: { showErrorToast: true },
+        meta: { showErrorDialog: true },
         retry: false,
       })
     ).rejects.toThrow()
@@ -66,14 +66,14 @@ describe('QueryClient Error Handling & Toast Feedback (Issue #29 / DESIGN_SYSTEM
     })
   })
 
-  it('does NOT trigger sonner toast error when a query explicitly disables showErrorToast', async () => {
+  it('does NOT trigger sonner toast error when a query explicitly disables showErrorDialog', async () => {
     const error = new ApiClientError(500, 'Silent Failure')
 
     await expect(
       queryClient.fetchQuery({
         queryKey: ['silent-fail-test'],
         queryFn: () => Promise.reject(error),
-        meta: { showErrorToast: false },
+        meta: { showErrorDialog: false },
         retry: false,
       })
     ).rejects.toThrow()
