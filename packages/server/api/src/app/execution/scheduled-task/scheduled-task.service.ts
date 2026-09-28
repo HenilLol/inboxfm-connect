@@ -147,25 +147,28 @@ export const scheduledTaskService = {
         return dispatchExecution(task)
     },
 
-    async reRegisterEnabledSchedules({ log }: { log: FastifyBaseLogger }): Promise<{ tasks: number }> {
+    async reRegisterEnabledSchedules({ log }: { log: FastifyBaseLogger }): Promise<{ registered: number, skipped: number, total: number }> {
         let tasks: ScheduledTaskSchema[] = []
         try {
             tasks = await scheduledTaskRepo().findBy({ status: ScheduledTaskStatus.ENABLED })
         }
         catch (error) {
             log.error({ error }, '[scheduledTaskService#reRegisterEnabledSchedules] Failed to query enabled tasks from database')
-            return { tasks: 0 }
+            return { registered: 0, skipped: 0, total: 0 }
         }
 
         let registered = 0
+        let skipped = 0
         for (const task of tasks) {
             try {
                 if (!cronParser.validateCronExpression(task.cronExpression)) {
                     log.warn({ task: { id: task.id } }, '[scheduledTaskService#reRegisterEnabledSchedules] Skipping schedule with invalid cron expression')
+                    skipped += 1
                     continue
                 }
                 if (task.timezone && !isValidTimezone(task.timezone)) {
                     log.warn({ task: { id: task.id } }, '[scheduledTaskService#reRegisterEnabledSchedules] Skipping schedule with invalid timezone')
+                    skipped += 1
                     continue
                 }
                 const nextRunAt = computeNextRunAt({ cronExpression: task.cronExpression, timezone: task.timezone })
@@ -175,9 +178,10 @@ export const scheduledTaskService = {
             }
             catch (error) {
                 log.warn({ error, task: { id: task.id } }, '[scheduledTaskService#reRegisterEnabledSchedules] Skipping schedule that failed to register')
+                skipped += 1
             }
         }
-        return { tasks: registered }
+        return { registered, skipped, total: tasks.length }
     },
 }
 

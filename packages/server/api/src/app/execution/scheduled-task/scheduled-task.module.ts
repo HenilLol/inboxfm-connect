@@ -4,8 +4,8 @@ import { scheduledTaskService } from './scheduled-task.service'
 
 export const scheduledTaskModule: FastifyPluginAsyncZod = async (app) => {
     try {
-        const { tasks } = await scheduledTaskService.reRegisterEnabledSchedules({ log: app.log })
-        app.log.info({ tasks }, '[scheduledTaskModule] Re-registered enabled scheduled tasks on boot')
+        const { registered, skipped, total } = await scheduledTaskService.reRegisterEnabledSchedules({ log: app.log })
+        app.log.info({ registered, skipped, total }, '[scheduledTaskModule] Re-registered enabled scheduled tasks on boot')
     }
     catch (error) {
         app.log.error({ error }, '[scheduledTaskModule] Failed to re-register scheduled tasks on boot')

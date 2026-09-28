@@ -191,8 +191,8 @@ describe('Scheduled tasks restart-safe re-registration, nextRunAt, and multi-ins
         const taskResult = await scheduledTaskService.reRegisterEnabledSchedules({ log: app!.log })
         const bindingResult = await triggerBindingService.reRegisterEnabledSchedules({ log: app!.log })
 
-        expect(taskResult.tasks).toBeGreaterThanOrEqual(1)
-        expect(bindingResult.bindings).toBeGreaterThanOrEqual(1)
+        expect(taskResult.registered).toBeGreaterThanOrEqual(1)
+        expect(bindingResult.registered).toBeGreaterThanOrEqual(1)
 
         // Verify scheduler now holds both jobs again
         expect(scheduler.has(taskJobName)).toBe(true)
@@ -243,7 +243,7 @@ describe('Scheduled tasks restart-safe re-registration, nextRunAt, and multi-ins
 
         // Boot re-registration must succeed and register the valid task despite the corrupted one
         const result = await scheduledTaskService.reRegisterEnabledSchedules({ log: app!.log })
-        expect(result.tasks).toBeGreaterThanOrEqual(1)
+        expect(result.registered).toBeGreaterThanOrEqual(1)
         expect(scheduler.has(`user-task-${validId}`)).toBe(true)
         expect(scheduler.has(`user-task-${corruptId}`)).toBe(false)
     })
@@ -380,8 +380,8 @@ describe('Scheduled tasks restart-safe re-registration, nextRunAt, and multi-ins
         const taskResult = await scheduledTaskService.reRegisterEnabledSchedules({ log: app!.log })
         const bindingResult = await triggerBindingService.reRegisterEnabledSchedules({ log: app!.log })
 
-        expect(taskResult.tasks).toBe(0)
-        expect(bindingResult.bindings).toBe(0)
+        expect(taskResult.registered).toBe(0)
+        expect(bindingResult.registered).toBe(0)
 
         scheduledSpy.mockRestore()
         triggerSpy.mockRestore()
