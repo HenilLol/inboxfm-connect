@@ -97,6 +97,17 @@ export function useDeleteConnection() {
   })
 }
 
+export function useTestConnection() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id }: { id: string }) => connectionsApi.test({ id }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['connections'] })
+      void queryClient.invalidateQueries({ queryKey: ['connection'] })
+    },
+  })
+}
+
 export function useProjectApiKeysQuery() {
   const projectId = apiClient.getProjectId()
   return useQuery({
