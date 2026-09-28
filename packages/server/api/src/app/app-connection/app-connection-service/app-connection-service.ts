@@ -144,9 +144,9 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
         try {
             const refreshed = await this.decryptAndRefreshConnection(encryptedAppConnection, projectId, log)
             if (isNil(refreshed)) {
-                return markConnectionTested({ id, status: AppConnectionStatus.ERROR, testedAt, message: 'The connection could not be refreshed.' })
+                return await markConnectionTested({ id, status: AppConnectionStatus.ERROR, testedAt, message: 'The connection could not be refreshed.' })
             }
-            return markConnectionTested({ id, status: AppConnectionStatus.ACTIVE, testedAt })
+            return await markConnectionTested({ id, status: AppConnectionStatus.ACTIVE, testedAt })
         }
         catch (error) {
             log.warn({ error, connection: { id } }, '[appConnectionService#testConnection] Health check failed')
