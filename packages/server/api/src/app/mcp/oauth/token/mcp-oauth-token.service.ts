@@ -1,5 +1,5 @@
 import { randomBytes } from 'crypto'
-import { apId } from '@inboxfm-connect/core-utils'
+import { apId, isNil } from '@inboxfm-connect/core-utils'
 import { cryptoUtils } from '@inboxfm-connect/server-utils'
 import { McpOAuthToken } from '@inboxfm-connect/shared'
 import { repoFactory } from '../../../core/db/repo-factory'
@@ -81,11 +81,32 @@ export const mcpOAuthTokenService = {
 
     async refreshAccessToken(params: RefreshParams): Promise<TokenResponse> {
         const hashed = hashRefreshToken(params.refreshToken)
-        const record = await repo().findOneBy({ refreshToken: hashed })
-        if (!record || record.revoked || new Date(record.expiresAt) < new Date()) {
+
+        // RFC 6819 s5.2.2.3 / OAuth 2.1: rotate the refresh token on every use.
+        // The claim is a single conditional UPDATE so two concurrent refresh calls
+        // with the same token cannot both win - the loser sees no returned row and
+        // gets invalid_grant. Reuse of a rotated token is how theft gets detected.
+        const rawNewRefreshToken = generateRefreshToken()
+        const now = new Date().toISOString()
+        const claim = await repo().createQueryBuilder()
+            .update()
+            .set({ refreshToken: hashRefreshToken(rawNewRefreshToken), updated: now })
+            .where('"refreshToken" = :hashed AND "revoked" = false AND "expiresAt" > :now', { hashed, now })
+            .returning('*')
+            .execute()
+
+        const claimedRows = claim.raw as McpOAuthToken[]
+        const record = Array.isArray(claimedRows) && claimedRows.length > 0 ? claimedRows[0] : null
+        if (isNil(record)) {
+            // Either unknown/revoked/expired, or lost a race to a concurrent refresh
+            // with the same token - indistinguishable by design (RFC 6749 s5.2).
             throw new OAuthTokenError('invalid_grant', 'Invalid or expired refresh token')
         }
         if (record.clientId !== params.clientId) {
+            // The token was claimed but presented by the wrong client - revoke the
+            // rotated token so the legitimate owner is not stranded with a token the
+            // attacker now shares, and reject (RFC 6819 s5.2.2.3).
+            await repo().update({ id: record.id }, { revoked: true })
             throw new OAuthTokenError('invalid_grant', 'Client mismatch')
         }
 
@@ -101,6 +122,7 @@ export const mcpOAuthTokenService = {
             access_token: accessToken,
             token_type: 'Bearer',
             expires_in: ACCESS_TOKEN_TTL_15_MINUTES_SECONDS,
+            refresh_token: rawNewRefreshToken,
         }
     },
 
