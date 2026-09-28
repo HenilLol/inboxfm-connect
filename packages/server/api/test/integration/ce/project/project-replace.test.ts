@@ -22,12 +22,13 @@ import {
 } from '@inboxfm-connect/shared'
 import { FastifyInstance } from 'fastify'
 import { StatusCodes } from 'http-status-codes'
-import { vi } from 'vitest'
+import { ArrayContains } from 'typeorm'
 import { agentService } from '../../../../src/app/agents/agent.service'
-import { appConnectionService } from '../../../../src/app/app-connection/app-connection-service/app-connection-service'
+import { appConnectionsRepo, appConnectionService } from '../../../../src/app/app-connection/app-connection-service/app-connection-service'
 import { mcpServerRepository, mcpServerService } from '../../../../src/app/mcp/mcp-service'
 import { userInteractionWatcher } from '../../../../src/app/helper/user-interaction/user-interaction-watcher'
 import { projectRepo } from '../../../../src/app/project/project-repo'
+import { projectReplaceService } from '../../../../src/app/project/replace/project-replace.service'
 import { mockAndSaveAIProvider } from '../../../helpers/mocks'
 import { createMemberContext, createTestContext, TestContext } from '../../../helpers/test-context'
 import { setupTestEnvironment, teardownTestEnvironment } from '../../../helpers/test-setup'
@@ -3344,6 +3345,157 @@ describe('Project Replace API (CE)', () => {
             expect(retryApply.statusCode).toBe(StatusCodes.OK)
             expect(retryApply.json().applied.mcpDeleted).toBe(1)
             expect(await mcpServerRepository().findOneBy({ projectId: ctx.project.id })).toBeNull()
+        })
+    })
+
+    describe('End-to-End Multi-Project Export -> Plan -> Apply Fixture (Issue #128)', () => {
+        it('executes full workflow across two distinct projects with real connections, assert dry-run no-mutation, and verify connection isolation and remapping', async () => {
+            const sourceCtx = await createTestContext(app!)
+            const destCtx = await createTestContext(app!, { platform: sourceCtx.platform })
+
+            await mockAndSaveAIProvider({
+                platformId: destCtx.platform.id,
+                provider: AIProviderName.OPENAI,
+                displayName: 'OpenAI Dest',
+            })
+
+            // 1. Create real connections on source and destination projects
+            const sourceConn = await appConnectionService(app!.log).upsert({
+                projectIds: [sourceCtx.project.id],
+                platformId: sourceCtx.platform.id,
+                externalId: 'slack-crm-source',
+                displayName: 'Source Slack CRM',
+                pieceName: '@inboxfm-connect/piece-slack',
+                pieceVersion: '0.17.3',
+                type: AppConnectionType.SECRET_TEXT,
+                value: { type: AppConnectionType.SECRET_TEXT, secret_text: 'source-super-secret-token' },
+                scope: AppConnectionScope.PROJECT,
+                ownerId: null,
+            })
+
+            const destConn = await appConnectionService(app!.log).upsert({
+                projectIds: [destCtx.project.id],
+                platformId: destCtx.platform.id,
+                externalId: 'slack-crm-dest',
+                displayName: 'Destination Slack CRM',
+                pieceName: '@inboxfm-connect/piece-slack',
+                pieceVersion: '0.17.3',
+                type: AppConnectionType.SECRET_TEXT,
+                value: { type: AppConnectionType.SECRET_TEXT, secret_text: 'dest-distinct-token' },
+                scope: AppConnectionScope.PROJECT,
+                ownerId: null,
+            })
+
+            // Create an agent in source project that uses the connection
+            await agentService.create({
+                projectId: sourceCtx.project.id,
+                platformId: sourceCtx.platform.id,
+                externalId: 'agent-support-source',
+                displayName: 'Support Agent',
+                prompt: 'Assist customer',
+                model: { provider: AIProviderName.OPENAI, model: 'gpt-4o' },
+                tools: [
+                    {
+                        type: AgentToolType.PIECE,
+                        toolName: 'send_slack_message',
+                        pieceMetadata: {
+                            pieceName: '@inboxfm-connect/piece-slack',
+                            pieceVersion: '0.17.3',
+                            actionName: 'send_message',
+                            predefinedInput: {
+                                auth: `{{connections['slack-crm-source']}}`,
+                                fields: {},
+                            },
+                        },
+                    },
+                ],
+            })
+
+            // 2. Export snapshot from Source Project
+            const exportRes = await app!.inject({
+                method: 'GET',
+                url: `/api/v1/projects/${sourceCtx.project.id}/replace/export`,
+                headers: { authorization: `Bearer ${sourceCtx.token}` },
+            })
+            expect(exportRes.statusCode).toBe(StatusCodes.OK)
+            const sourceSnapshot: ProjectStateSnapshot = exportRes.json()
+
+            // Verify secrets are redacted in exported snapshot
+            expect(JSON.stringify(sourceSnapshot)).not.toContain('source-super-secret-token')
+            expect(sourceSnapshot.requiredConnections.some((c) => c.externalId === 'slack-crm-source')).toBe(true)
+
+            // 3. Compute destination state hash before dry-run
+            const service = projectReplaceService(app!.log)
+            const destHashBeforeDryRun = await service.computeDestinationStateHash(destCtx.project.id, destCtx.platform.id)
+
+            // 4. Generate Dry-run Plan against Destination with connection mapping
+            const connectionMappings: ConnectionMappingSchema[] = [
+                {
+                    sourceExternalId: 'slack-crm-source',
+                    destExternalId: 'slack-crm-dest',
+                    pieceName: '@inboxfm-connect/piece-slack',
+                    type: AppConnectionType.SECRET_TEXT,
+                },
+            ]
+
+            const planRes = await app!.inject({
+                method: 'POST',
+                url: `/api/v1/projects/${destCtx.project.id}/replace/plan`,
+                headers: { authorization: `Bearer ${destCtx.token}` },
+                body: {
+                    snapshot: sourceSnapshot,
+                    connectionMappings,
+                },
+            })
+
+            expect(planRes.json().plan?.preflight?.errors ?? planRes.json()).toEqual([])
+            expect(planRes.statusCode).toBe(StatusCodes.OK)
+            const artifact: ProjectReplaceArtifact = planRes.json()
+            expect(artifact.plan.preflight.passed).toBe(true)
+            expect(artifact.plan.targetProjectId).toBe(destCtx.project.id)
+
+            // Assert dry-run invariant: destination state hash unchanged
+            const destHashAfterDryRun = await service.computeDestinationStateHash(destCtx.project.id, destCtx.platform.id)
+            expect(destHashAfterDryRun).toBe(destHashBeforeDryRun)
+
+            // 5. Apply the plan onto Destination Project
+            const applyRes = await app!.inject({
+                method: 'POST',
+                url: `/api/v1/projects/${destCtx.project.id}/replace/apply`,
+                headers: { authorization: `Bearer ${destCtx.token}` },
+                body: {
+                    plan: artifact.plan,
+                    snapshot: sourceSnapshot,
+                    connectionMappings,
+                },
+            })
+
+            expect(applyRes.statusCode).toBe(StatusCodes.OK)
+            const applyResult = applyRes.json()
+            expect(applyResult.failed).toHaveLength(0)
+
+            // 6. Assert Cross-Project Isolation & Connection Remap
+            const verifiedDestConn = await appConnectionsRepo().findOneBy({
+                id: destConn.id,
+                projectIds: ArrayContains([destCtx.project.id]),
+            })
+            expect(verifiedDestConn).not.toBeNull()
+            expect(verifiedDestConn!.externalId).toBe('slack-crm-dest')
+
+            const sourceLookupInDest = await appConnectionsRepo().findOneBy({
+                id: sourceConn.id,
+                projectIds: ArrayContains([destCtx.project.id]),
+            })
+            expect(sourceLookupInDest).toBeNull()
+
+            // 7. Verify agent created in destination project has connection remapped to destination connection
+            const destAgents = await agentService.listByProjectId({
+                projectId: destCtx.project.id,
+                platformId: destCtx.platform.id,
+            })
+            expect(destAgents).toHaveLength(1)
+            expect(destAgents[0].externalId).toBe('agent-support-source')
+            expect(destAgents[0].tools[0].pieceMetadata?.predefinedInput?.auth).toContain(destConn.id)
         })
     })
 })
