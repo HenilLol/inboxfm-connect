@@ -70,4 +70,30 @@ describe('TriggerBinding Domain & Safety Audit', () => {
             expect(parsed.connectionId).toBeNull()
         })
     })
+
+    describe('TriggerBinding Webhook URL Generation', () => {
+        it('resolves webhook url with /api/v1/trigger-bindings/:id/webhook using domainHelper', async () => {
+            const { domainHelper } = await import('../../../../src/app/helper/domain-helper')
+            const { system } = await import('../../../../src/app/helper/system/system')
+            const { AppSystemProp } = await import('../../../../src/app/helper/system/system-props')
+
+            const originalFrontendUrl = system.get(AppSystemProp.FRONTEND_URL)
+            try {
+                process.env.AP_FRONTEND_URL = 'https://cloud.inboxfm-connect.com'
+                const bindingId = 'tb_test123456789'
+                const webhookUrl = await domainHelper.getPublicApiUrl({
+                    path: `v1/trigger-bindings/${bindingId}/webhook`,
+                })
+
+                expect(webhookUrl).toBe(`https://cloud.inboxfm-connect.com/api/v1/trigger-bindings/${bindingId}/webhook`)
+                expect(webhookUrl).not.toContain('localhost')
+            }
+            finally {
+                if (originalFrontendUrl !== undefined) {
+                    process.env.AP_FRONTEND_URL = originalFrontendUrl
+                }
+            }
+        })
+    })
 })
+
