@@ -110,7 +110,7 @@ export const connectSessionPublicController: FastifyPluginAsyncZod = async (app)
             type: req.body.type,
             value,
         })
-        await connectSessionService.markConsumed(session.id)
+        await connectSessionService.consumeOrThrow(session.id)
 
         return res.status(StatusCodes.CREATED).send(connection)
     })
