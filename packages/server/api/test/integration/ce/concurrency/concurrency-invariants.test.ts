@@ -265,19 +265,34 @@ describe('Concurrency Invariants & Parallel-Worker Regression Suite (#146)', () 
                     const executionId = apId()
                     const now = new Date().toISOString()
 
-                    await executionRepo.insert({
-                        id: executionId,
-                        created: now,
-                        updated: now,
-                        projectId,
-                        platformId,
-                        status: ExecutionStatus.RUNNING,
-                        prompt: `Webhook run for ${dedupKey}`,
-                        metadata: { dedupKey },
-                    })
+                    // Atomically claim the dedup slot first in Redis with TTL before persisting
+                    const acquired = await redis.set(redisDedupKey, executionId, 'NX', 'EX', 300)
+                    if (!acquired) {
+                        const winnerId = (await redis.get(redisDedupKey)) ?? executionId
+                        return {
+                            enqueued: false,
+                            duplicate: true,
+                            executionId: winnerId,
+                        }
+                    }
 
-                    // Set dedup key in Redis with TTL
-                    await redis.set(redisDedupKey, executionId, 'EX', 300)
+                    try {
+                        await executionRepo.insert({
+                            id: executionId,
+                            created: now,
+                            updated: now,
+                            projectId,
+                            platformId,
+                            status: ExecutionStatus.RUNNING,
+                            prompt: `Webhook run for ${dedupKey}`,
+                            metadata: { dedupKey },
+                        })
+                    }
+                    catch (err) {
+                        // Rollback Redis reservation if database insertion fails
+                        await redis.del(redisDedupKey)
+                        throw err
+                    }
 
                     return {
                         enqueued: true,
