@@ -37,6 +37,7 @@ This file tracks the sequential issues discovered, implemented, tested, audited,
 ### Issue #137: `tests: analytics module (platform analytics reports) is untested`
 - **Status**: Verified / Pushed (`submitted for manual PR creation`)
 - **Branch**: `test/issue-137-platform-analytics-suite`
+- **Commit SHA**: `7f1ea70c4043c5446299399ee3afe9dc1e6bd153`
 - **Comparison URL**: https://github.com/Mihir-Rabari/inboxfm-connect/compare/dev...HenilLol:inboxfm-connect:test/issue-137-platform-analytics-suite?expand=1
 - **Tests**:
   - `platform-analytics.test.ts` (unit): 13 passed (13)
@@ -44,4 +45,17 @@ This file tracks the sequential issues discovered, implemented, tested, audited,
   - `turbo run lint --filter=api`: 17 tasks passed (0 errors)
   - `turbo run build --filter=api`: 17 tasks passed (0 errors)
 - **Known Limitations**: None.
-- **Timestamp**: 2026-09-28T12:17:35+05:30
+- **Timestamp**: 2026-09-28T12:18:22+05:30
+
+### Issue #141: `tests: core libs are thin — wire core/execution into test-unit and raise shared/execution coverage`
+- **Status**: Verified / Pushed (`submitted for manual PR creation`)
+- **Branch**: `test/issue-141-core-execution-shared-coverage`
+- **Comparison URL**: https://github.com/Mihir-Rabari/inboxfm-connect/compare/dev...HenilLol:inboxfm-connect:test/issue-141-core-execution-shared-coverage?expand=1
+- **Tests**:
+  - `@inboxfm-connect/core-execution`: 5 files, 41 passed (41)
+  - `@inboxfm-connect/shared`: 14 files, 441 passed (441)
+  - `npm run test-unit`: 23 tasks passed (280 API tests + all engine/shared/execution tests)
+  - `turbo run lint`: 6 tasks passed (0 errors)
+- **Known Limitations**: None.
+- **Timestamp**: 2026-09-28T12:39:20+05:30
+>>>>>>> 40b6dd4539 (test(core): expand execution journal, step output, and try-catch test coverage (#141))
