@@ -83,9 +83,10 @@ export async function execute(operationType: EngineOperationType, operation: Eng
     })
     if (result.error) {
         console.error(result.error)
+        const isUserError = result.error instanceof ExecutionError && result.error.type === ExecutionErrorType.USER
         return {
             response: undefined,
-            status: EngineResponseStatus.INTERNAL_ERROR,
+            status: isUserError ? EngineResponseStatus.USER_FAILURE : EngineResponseStatus.INTERNAL_ERROR,
             error: JSON.stringify(formatPieceError(result.error, { raw: inspect(result.error) })),
         }
     }

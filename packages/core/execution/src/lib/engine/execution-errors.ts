@@ -131,3 +131,28 @@ export class SSRFBlockedError extends ExecutionError {
         )
     }
 }
+
+export class PropsValidationError extends ExecutionError {
+    public readonly errors: Record<string, unknown>
+
+    constructor(errors: Record<string, unknown>, cause?: unknown) {
+        const fieldSummaries: string[] = []
+        for (const [field, err] of Object.entries(errors)) {
+            if (Array.isArray(err)) {
+                fieldSummaries.push(`${field}: ${err.join(', ')}`)
+            }
+            else if (typeof err === 'object' && err !== null && 'message' in err && typeof err.message === 'string') {
+                fieldSummaries.push(`${field}: ${err.message}`)
+            }
+            else {
+                fieldSummaries.push(`${field}: ${JSON.stringify(err)}`)
+            }
+        }
+        const humanReadable = fieldSummaries.length > 0
+            ? `Validation failed: ${fieldSummaries.join('; ')}`
+            : 'Validation failed for input properties'
+        super('PropsValidationError', humanReadable, ExecutionErrorType.USER, cause)
+        this.errors = errors
+    }
+}
+
