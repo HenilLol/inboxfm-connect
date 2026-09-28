@@ -280,9 +280,14 @@ describe('Piece Metadata CE API', () => {
             expect(resMin?.statusCode).toBe(StatusCodes.OK)
             expect(resMin?.json().data.length).toBe(1)
 
+            const resDefault = await testLimit('10')
+            expect(resDefault?.statusCode).toBe(StatusCodes.OK)
+
             const resMax = await testLimit('500')
             expect(resMax?.statusCode).toBe(StatusCodes.OK)
-            expect(resMax?.json().data.length).toBeGreaterThan(0)
+            const maxCount = resMax?.json().data.length
+            expect(maxCount).toBeGreaterThanOrEqual(resDefault?.json().data.length)
+            expect(maxCount).toBeLessThanOrEqual(500)
         })
 
         it('should restart at first page if orderBy parameter changes from cursor queryHash', async () => {
@@ -445,9 +450,12 @@ describe('Piece Metadata CE API', () => {
             expect(resReplayed?.statusCode).toBe(StatusCodes.OK)
             const bodyReplayed = resReplayed?.json()
             expect(bodyReplayed.data.length).toBeGreaterThan(0)
-            // It must not return the anchor piece itself or anything before it
+            // It must not return the anchor piece itself or anything before it; all items must be strictly after anchorPiece
             expect(bodyReplayed.data.map((p: PieceMetadataModelSummary) => p.name)).not.toContain(anchorPiece.name)
             expect(bodyReplayed.data.map((p: PieceMetadataModelSummary) => p.name)).not.toContain(prefixPiece.name)
+            for (const piece of bodyReplayed.data as PieceMetadataModelSummary[]) {
+                expect(piece.name.localeCompare(anchorPiece.name)).toBeGreaterThan(0)
+            }
         })
     })
 
