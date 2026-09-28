@@ -1,6 +1,6 @@
 services:
   app:
-    image: ghcr.io/activepieces/activepieces:0.86.1
+    image: inboxfm-connect:local
     container_name: activepieces-app
     restart: unless-stopped
     ports:
@@ -15,8 +15,13 @@ services:
       - ./cache:/usr/src/app/cache
     networks:
       - activepieces
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: run
   worker:
-    image: ghcr.io/activepieces/activepieces:0.86.1
+    image: inboxfm-connect:local
+    container_name: activepieces-worker
     restart: unless-stopped
     depends_on:
       - app
