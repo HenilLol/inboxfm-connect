@@ -283,6 +283,7 @@ ErrorCode.ENTITY_NOT_FOUND,
     entityType?: string
     entityId?: string
     extra?: Record<string, unknown>
+    code?: string
 }
 >
 
@@ -302,6 +303,7 @@ export type ValidationErrorParams = BaseErrorParams<
 ErrorCode.VALIDATION,
 {
     message: string
+    code?: string
 }
 >
 
@@ -331,6 +333,7 @@ ErrorCode.ENGINE_OPERATION_FAILURE,
 {
     message: string
     context?: unknown
+    code?: string
 }
 >
 
