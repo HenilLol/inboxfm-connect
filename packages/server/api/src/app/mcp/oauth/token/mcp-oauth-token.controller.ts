@@ -58,6 +58,21 @@ async function authenticateClient(body: TokenRequestBody, reply: FastifyReply): 
     return client
 }
 
+// RFC 7591 §2.1: a client may only use grant types it registered. The register
+// endpoint persists grant_types (defaulting to both supported grants), but the
+// token endpoint never checked them - a client registered as authorization_code-
+// only could still exercise the refresh_token grant (and vice versa).
+async function assertGrantAllowed(client: McpOAuthClient, grantType: string, reply: FastifyReply): Promise<boolean> {
+    if (!client.grantTypes.includes(grantType)) {
+        await reply.status(400).send({
+            error: 'unauthorized_client',
+            error_description: `Client is not registered for the ${grantType} grant type`,
+        })
+        return false
+    }
+    return true
+}
+
 async function handleAuthorizationCode(body: TokenRequestBody, reply: FastifyReply): Promise<void> {
     const { code, code_verifier, redirect_uri } = body
     if (!code || !code_verifier || !redirect_uri) {
@@ -67,6 +82,7 @@ async function handleAuthorizationCode(body: TokenRequestBody, reply: FastifyRep
 
     const client = await authenticateClient(body, reply)
     if (isNil(client)) return
+    if (!(await assertGrantAllowed(client, 'authorization_code', reply))) return
 
     const authCode = await mcpOAuthCodeService.consume(code, client.clientId, redirect_uri)
     if (isNil(authCode)) {
@@ -97,6 +113,7 @@ async function handleRefreshToken(body: TokenRequestBody, reply: FastifyReply): 
 
     const client = await authenticateClient(body, reply)
     if (isNil(client)) return
+    if (!(await assertGrantAllowed(client, 'refresh_token', reply))) return
 
     const tokens = await mcpOAuthTokenService.refreshAccessToken({
         refreshToken: refresh_token,
