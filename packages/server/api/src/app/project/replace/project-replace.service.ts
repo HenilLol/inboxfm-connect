@@ -147,36 +147,68 @@ function sanitizeMcpTool(tool: AgentTool): AgentTool {
     return tool
 }
 
+function isTableNotFoundError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') {
+        return false
+    }
+    const errObj = err as Record<string, unknown>
+    if (errObj.code === '42P01') {
+        return true
+    }
+    const message = typeof errObj.message === 'string' ? errObj.message.toLowerCase() : ''
+    if (
+        message.includes('does not exist') ||
+        message.includes('no such table') ||
+        message.includes('undefined_table') ||
+        message.includes('relation "flow"') ||
+        message.includes('relation "flow_version"')
+    ) {
+        return true
+    }
+    return false
+}
+
 function extractAgentsFromFlows(flows?: Array<Record<string, unknown>>): AgentSnapshotSchema[] {
     if (!flows || !Array.isArray(flows)) return []
     const agents: AgentSnapshotSchema[] = []
     const seenExtIds = new Set<string>()
 
     for (const flow of flows) {
+        if (!flow || typeof flow !== 'object') continue
         const flowVersion = (flow.version ?? flow) as Record<string, unknown>
+        if (!flowVersion || typeof flowVersion !== 'object') continue
         const trigger = flowVersion.trigger as Record<string, unknown> | undefined
-        if (!trigger) continue
+        if (!trigger || typeof trigger !== 'object') continue
 
         const steps: Array<Record<string, unknown>> = []
+        const visited = new Set<Record<string, unknown>>()
         const collectSteps = (step?: Record<string, unknown>): void => {
-            if (!step) return
+            if (!step || typeof step !== 'object' || visited.has(step)) return
+            visited.add(step)
             steps.push(step)
-            if (step.nextAction) collectSteps(step.nextAction as Record<string, unknown>)
+            if (step.nextAction && typeof step.nextAction === 'object') {
+                collectSteps(step.nextAction as Record<string, unknown>)
+            }
             if (Array.isArray(step.children)) {
-                for (const c of step.children) collectSteps(c as Record<string, unknown>)
+                for (const c of step.children) {
+                    if (c && typeof c === 'object') {
+                        collectSteps(c as Record<string, unknown>)
+                    }
+                }
             }
         }
         collectSteps(trigger)
 
         for (const step of steps) {
             const settings = step.settings as Record<string, unknown> | undefined
-            const input = settings?.input as Record<string, unknown> | undefined
-            if (!input) continue
+            if (!settings || typeof settings !== 'object') continue
+            const input = settings.input as Record<string, unknown> | undefined
+            if (!input || typeof input !== 'object') continue
 
             const agentId = (input.agentId ?? input.externalAgentId) as string | undefined
-            if (agentId && !seenExtIds.has(agentId)) {
+            if (agentId && typeof agentId === 'string' && agentId.trim().length > 0 && !seenExtIds.has(agentId)) {
                 seenExtIds.add(agentId)
-                const modelInput = input.model as { provider?: string, model?: string } | undefined
+                const modelInput = input.model && typeof input.model === 'object' ? (input.model as { provider?: string, model?: string }) : undefined
                 agents.push({
                     externalId: agentId,
                     displayName: (step.displayName as string) ?? (step.name as string) ?? `Flow Agent (${agentId})`,
@@ -184,8 +216,8 @@ function extractAgentsFromFlows(flows?: Array<Record<string, unknown>>): AgentSn
                     prompt: (input.prompt as string) ?? '',
                     maxSteps: typeof input.maxSteps === 'number' ? input.maxSteps : 10,
                     model: {
-                        provider: modelInput?.provider ?? (input.provider as string) ?? '',
-                        model: modelInput?.model ?? (input.modelName as string) ?? '',
+                        provider: modelInput?.provider ?? (typeof input.provider === 'string' ? input.provider : ''),
+                        model: modelInput?.model ?? (typeof input.modelName === 'string' ? input.modelName : ''),
                     },
                     tools: Array.isArray(input.agentTools) ? (input.agentTools as AgentTool[]) : [],
                     structuredOutput: null,
@@ -531,13 +563,25 @@ export const projectReplaceService = (log: FastifyBaseLogger) => ({
                 if (flowIds.length > 0) {
                     const placeholders = flowIds.map((_, i) => `$${i + 1}`).join(', ')
                     flowVersions = await databaseConnection().query<Array<Record<string, unknown>>>(
-                        `SELECT * FROM "flow_version" WHERE "flowId" IN (${placeholders})`,
+                        `SELECT * FROM "flow_version" WHERE "flowId" IN (${placeholders}) ORDER BY "created" DESC`,
                         flowIds,
                     )
                 }
                 const versionsByFlowId = new Map<string, Record<string, unknown>>()
                 for (const fv of flowVersions) {
-                    versionsByFlowId.set(fv.flowId as string, fv)
+                    const flowId = fv.flowId as string
+                    if (!flowId) continue
+                    const existing = versionsByFlowId.get(flowId)
+                    if (!existing) {
+                        versionsByFlowId.set(flowId, fv)
+                    }
+                    else {
+                        const existingCreated = new Date((existing.created as string | number | Date) ?? 0).getTime()
+                        const currentCreated = new Date((fv.created as string | number | Date) ?? 0).getTime()
+                        if (currentCreated > existingCreated) {
+                            versionsByFlowId.set(flowId, fv)
+                        }
+                    }
                 }
 
                 flowsSnapshot = flows.map((f) => ({
@@ -553,8 +597,13 @@ export const projectReplaceService = (log: FastifyBaseLogger) => ({
                 }
             }
         }
-        catch {
-            flowsSnapshot = []
+        catch (err) {
+            if (isTableNotFoundError(err)) {
+                flowsSnapshot = []
+            }
+            else {
+                throw err
+            }
         }
 
         // 5. MCP server (externalId and disabledTools only, NO live bearer tokens!)
@@ -2530,4 +2579,6 @@ export const projectReplaceTesting = {
     computeSha256,
     sanitizeMappingForPlan,
     getSigningSecret,
+    extractAgentsFromFlows,
+    isTableNotFoundError,
 }
