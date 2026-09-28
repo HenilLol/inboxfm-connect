@@ -235,17 +235,23 @@ function buildBranchConditionValid(addMinLength: boolean) {
 export const ValidBranchCondition = buildBranchConditionValid(true)
 export type ValidBranchCondition = z.infer<typeof ValidBranchCondition>
 
-export const BranchTextCondition = buildBranchTextConditionValid(false)
+export const BranchCondition = ValidBranchCondition
+export type BranchCondition = ValidBranchCondition
+
+export const BranchTextCondition = buildBranchTextConditionValid(true)
 export type BranchTextCondition = z.infer<typeof BranchTextCondition>
 
-export const BranchNumberCondition = buildBranchNumberConditionValid(false)
+/** @deprecated Use ValidBranchCondition instead. */
+export const BranchNumberCondition = buildBranchNumberConditionValid(true)
 export type BranchNumberCondition = z.infer<typeof BranchNumberCondition>
 
-export const BranchDateCondition = buildBranchDateConditionValid(false)
+/** @deprecated Use ValidBranchCondition instead. */
+export const BranchDateCondition = buildBranchDateConditionValid(true)
 export type BranchDateCondition = z.infer<typeof BranchDateCondition>
 
+/** @deprecated Use ValidBranchCondition instead. */
 export const BranchSingleValueCondition =
-  buildBranchSingleValueConditionValid(false)
+  buildBranchSingleValueConditionValid(true)
 export type BranchSingleValueCondition = z.infer<
   typeof BranchSingleValueCondition
 >
@@ -268,7 +274,7 @@ export const RouterBranchesSchema = (addMinLength: boolean) =>
 
 export const RouterActionSettings = z.object({
     ...commonActionSettings,
-    branches: RouterBranchesSchema(false),
+    branches: RouterBranchesSchema(true),
     executionType: z.nativeEnum(RouterExecutionType),
 })
 

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { STEP_NAME_REGEX } from '@inboxfm-connect/core-utils'
 import { VersionType } from '@inboxfm-connect/core-piece-types'
-import { CodeActionSettings, LoopOnItemsActionSettings, PieceActionSettings, RouterActionSettings } from '../actions/action'
+import { CodeActionSettings, FlowAction, LoopOnItemsActionSettings, PieceActionSettings, RouterActionSettings } from '../actions/action'
 import { PropertySettings } from '../properties'
 import { SampleDataSetting } from '../sample-data'
 
@@ -34,7 +34,7 @@ const commonProps = {
     name: z.string().regex(STEP_NAME_REGEX),
     valid: z.boolean(),
     displayName: z.string(),
-    nextAction: z.any().optional(),
+    nextAction: z.lazy(() => FlowAction).optional(),
     lastUpdatedDate: z.string(),
 }
 
