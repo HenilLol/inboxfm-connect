@@ -86,6 +86,7 @@ export const executionController: FastifyPluginAsyncZod = async (fastify) => {
             projectId: request.projectId,
             status: request.query.status,
             limit: request.query.limit,
+            cursor: request.query.cursor,
         })
     })
 }
