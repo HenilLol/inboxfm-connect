@@ -427,7 +427,13 @@ async function markConnectionTested({ id, status, testedAt, message }: {
     testedAt: string
     message?: string
 }): Promise<TestConnectionResult> {
-    await appConnectionsRepo().update({ id }, { status })
+    // Read-then-write: a concurrent refresh, reconnect, or health check may
+    // have recorded a newer status after this test ran — never blindly
+    // overwrite it with a stale result.
+    const current = await appConnectionsRepo().findOneBy({ id })
+    if (!isNil(current) && current.status !== status) {
+        await appConnectionsRepo().update({ id }, { status })
+    }
     return { ok: status === AppConnectionStatus.ACTIVE, status, testedAt, message }
 }
 
