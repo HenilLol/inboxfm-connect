@@ -216,6 +216,7 @@ export function createSandbox(
                     cpuMsPerSec: options.cpuMsPerSec,
                     timeLimitSeconds: options.timeLimitSeconds,
                 },
+                reusable: options.reusable,
             })
 
             nativeStdOut = ''
