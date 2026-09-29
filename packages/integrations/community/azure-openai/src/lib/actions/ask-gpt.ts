@@ -135,7 +135,12 @@ export const askGpt = createAction({
         const responseText = completion.choices[0].message?.content;
 
         // Add response to message history
-        messageHistory = [...messageHistory, responseText];
+        // The stored history holds { role, content } objects; appending a bare
+        // string would corrupt the shape and be rejected by the API next turn.
+        messageHistory = [
+            ...messageHistory,
+            { role: 'assistant', content: responseText },
+        ];
 
         // Check message history token size
         // System limit is 32K tokens, we can probably make it bigger but this is a safe spot
