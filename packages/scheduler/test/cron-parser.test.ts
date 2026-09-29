@@ -175,6 +175,23 @@ describe('Cron Parser & Validator', () => {
 
 
 describe('validateCronExpression fireability (issue #389)', () => {
+    it('accepts dom OR dow schedules that fire (CR on #390, item 1)', () => {
+        // both-restricted OR branch: "0 0 31 2 MON" fires every February Monday
+        expect(cronParser.validateCronExpression('0 0 31 2 MON')).toBe(true)
+        expect(cronParser.validateCronExpression('0 0 30 2 MON')).toBe(true)
+        expect(cronParser.validateCronExpression('0 0 31 2 SUN')).toBe(true)
+        // dow-restricted in a real month
+        expect(cronParser.validateCronExpression('0 0 31 4 MON')).toBe(true)
+        // leap-day + weekday OR (CR non-blocking suggestion)
+        expect(cronParser.validateCronExpression('0 0 29 2 MON')).toBe(true)
+    })
+
+    it('still rejects structurally unfireable dom-only schedules', () => {
+        expect(cronParser.validateCronExpression('0 0 31 4 *')).toBe(false) // 31 April
+        expect(cronParser.validateCronExpression('0 0 31 6 *')).toBe(false) // 31 June
+        expect(cronParser.validateCronExpression('0 0 30 2 *')).toBe(false) // 30 February
+    })
+
     it('rejects syntactically valid crons that can never fire', () => {
         expect(cronParser.validateCronExpression('0 0 31 2 *')).toBe(false) // 31 February
         expect(cronParser.validateCronExpression('0 0 30 2 *')).toBe(false) // 30 February
