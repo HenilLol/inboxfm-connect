@@ -147,14 +147,20 @@ export const askGpt = createAction({
 
         // Check message history token size
         // System limit is 32K tokens, we can probably make it bigger but this is a safe spot
+        // The roles/system messages are sent on every call ([...roles, ...messageHistory]),
+        // so they consume request context the history-only estimate never saw. Include
+        // their tokens in the budget and hand the same combined size to reduceContextSize
+        // so the reduced history actually fits alongside the system prompt.
+        const rolesTokenLength = await calculateMessagesTokenSize(roles, '');
         const tokenLength = await calculateMessagesTokenSize(messageHistory, '');
         if (propsValue.memoryKey) {
             // If tokens exceed 90% system limit or 90% of model limit - maxTokens, reduce history token size
-            if (exceedsHistoryLimit(tokenLength, '', propsValue.maxTokens)) {
+            if (exceedsHistoryLimit(tokenLength + rolesTokenLength, '', propsValue.maxTokens)) {
                 messageHistory = await reduceContextSize(
                     messageHistory,
                     '',
-                    propsValue.maxTokens
+                    propsValue.maxTokens,
+                    rolesTokenLength
                 );
             }
             // Store history

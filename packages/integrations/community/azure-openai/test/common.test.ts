@@ -87,4 +87,16 @@ describe('exceedsHistoryLimit (guard fires on production shape)', () => {
     const bigTokens = await calculateMessagesTokenSize(big, MODEL);
     expect(exceedsHistoryLimit(bigTokens, MODEL, 100)).toBe(true);
   });
+
+  it('roles tokens count toward the guard: history that fits alone fails with a large system prompt (#342)', async () => {
+    // history alone is under the limit
+    const history = buildMessages(20, 100); // 500 tokens
+    const historyTokens = await calculateMessagesTokenSize(history, MODEL);
+    expect(exceedsHistoryLimit(historyTokens, MODEL, 100)).toBe(false);
+
+    // roles/system tokens ride on every request; combined size trips the guard
+    const roles = buildMessages(60, 100); // 1500 tokens
+    const rolesTokens = await calculateMessagesTokenSize(roles, MODEL);
+    expect(exceedsHistoryLimit(historyTokens + rolesTokens, MODEL, 100)).toBe(true);
+  });
 });
