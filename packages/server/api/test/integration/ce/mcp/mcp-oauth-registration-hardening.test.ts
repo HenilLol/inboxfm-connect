@@ -128,4 +128,70 @@ describe('MCP OAuth grant-type enforcement at the token endpoint', () => {
         expect(tokenResponse?.statusCode).toBe(StatusCodes.BAD_REQUEST)
         expect(tokenResponse?.json().error).toBe('unauthorized_client')
     })
+
+    it('rejects a suffix-host lookalike of a loopback address', async () => {
+        const response = await app?.inject({
+            method: 'POST',
+            url: '/register',
+            payload: {
+                redirect_uris: ['http://127.0.0.1.attacker.com/callback'],
+            },
+        })
+        expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
+    })
+
+    it('rejects a userinfo trick that hides a remote host', async () => {
+        const response = await app?.inject({
+            method: 'POST',
+            url: '/register',
+            payload: {
+                redirect_uris: ['http://***@evil.com/callback'],
+            },
+        })
+        expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
+    })
+
+    it('rejects a subdomain lookalike of localhost', async () => {
+        const response = await app?.inject({
+            method: 'POST',
+            url: '/register',
+            payload: {
+                redirect_uris: ['http://localhost.evil.com/callback'],
+            },
+        })
+        expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
+    })
+
+    it('accepts localhost with a port', async () => {
+        const response = await app?.inject({
+            method: 'POST',
+            url: '/register',
+            payload: {
+                redirect_uris: ['http://localhost:1455/cb'],
+            },
+        })
+        expect(response?.statusCode).toBe(StatusCodes.CREATED)
+    })
+
+    it('accepts IPv6 loopback with a port', async () => {
+        const response = await app?.inject({
+            method: 'POST',
+            url: '/register',
+            payload: {
+                redirect_uris: ['http://[::1]:1455/cb'],
+            },
+        })
+        expect(response?.statusCode).toBe(StatusCodes.CREATED)
+    })
+
+    it('rejects any redirect URI carrying a fragment (RFC 6749 s3.1.2)', async () => {
+        const response = await app?.inject({
+            method: 'POST',
+            url: '/register',
+            payload: {
+                redirect_uris: ['https://evil.com/cb#x'],
+            },
+        })
+        expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
+    })
 })

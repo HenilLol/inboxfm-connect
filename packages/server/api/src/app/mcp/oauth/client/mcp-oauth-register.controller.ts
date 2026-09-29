@@ -19,11 +19,17 @@ function isPrivateUseScheme(protocol: string): boolean {
 function isLoopbackHttpUrl(rawUrl: string): boolean {
     const url = new URL(rawUrl)
     const host = url.hostname.toLowerCase()
-    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1'
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
 }
 
 function isValidRedirectUri(rawUrl: string): boolean {
     const url = new URL(rawUrl)
+    // RFC 6749 s3.1.2: the redirect URI must not include a fragment component,
+    // regardless of scheme — fragments never reach the server and can be
+    // rewritten by anything with access to the redirect target.
+    if (url.hash) {
+        return false
+    }
     if (url.protocol === 'https:') {
         return true
     }
@@ -57,7 +63,7 @@ const RegisterRequest = {
             redirect_uris: z.array(z.string().url().refine(isValidRedirectUri, { message: 'Only https, loopback http (RFC 8252), or private-use URI schemes are allowed' })).min(1).max(MAX_REDIRECT_URIS_PER_CLIENT),
             client_name: z.string().max(255).optional(),
             grant_types: z.array(z.enum(['authorization_code', 'refresh_token'])).optional(),
-            response_types: z.array(z.string()).optional(),
+            response_types: z.array(z.enum(['code'])).optional(),
             token_endpoint_auth_method: z.enum(['none', 'client_secret_post']).optional(),
         }),
     },
