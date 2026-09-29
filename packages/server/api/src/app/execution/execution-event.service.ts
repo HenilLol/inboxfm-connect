@@ -258,6 +258,13 @@ const executionEventService = {
             // Fallback to memory
         }
 
+        // Touch last-activity on every event (codeant finding on #393), including
+        // discarded non-critical ones at the cap: an actively producing execution
+        // must not be swept out and lose its fallback history while it is still
+        // emitting — activity, not storage, drives the TTL.
+        memoryLastActivity.set(event.executionId, Date.now())
+        startMemoryTtlSweep()
+
         const list = memoryHistory.get(event.executionId) ?? []
         if (list.length >= MAX_HISTORY_EVENTS) {
             if (!isCritical) {
@@ -274,8 +281,6 @@ const executionEventService = {
         }
         list.push(event)
         memoryHistory.set(event.executionId, list)
-        memoryLastActivity.set(event.executionId, Date.now())
-        startMemoryTtlSweep()
     },
 
     async readEventHistory({ executionId }: { executionId: string }): Promise<ExecutionEvent[]> {

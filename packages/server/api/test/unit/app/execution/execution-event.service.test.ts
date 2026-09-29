@@ -1,6 +1,6 @@
 import { tryCatch } from '@inboxfm-connect/core-utils'
 import { ExecutionEvent, ExecutionEventType } from '@inboxfm-connect/shared'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { executionEventService } from '../../../../src/app/execution/execution-event.service'
 import { pubsub } from '../../../../src/app/helper/pubsub'
 
@@ -259,11 +259,24 @@ describe('ExecutionEvent Service', () => {
 })
 
 
+// Force the memory fallback deterministically (codeant finding on #393):
+// with a live Redis the suite would exercise the Redis path instead, and
+// the cap/eviction behavior under test would never run.
+import { redisConnections } from '../../../../src/app/database/redis-connections'
+
 describe('memory fallback eviction (issue #392)', () => {
+    beforeEach(() => {
+        vi.spyOn(redisConnections, 'useExisting').mockRejectedValue(new Error('redis unavailable (test)'))
+    })
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
     it('critical events still land past the cap but never grow the list unbounded', async () => {
         const executionId = 'exec_critical_cap_test'
         const criticalType = ExecutionEventType.ExecutionCompleted
-        // fill to the cap with non-critical events
+        // fill past the cap with non-critical events; the cap drops them at 1000
         for (let i = 0; i < 1005; i++) {
             await executionEventService.emit({
                 executionId,
@@ -272,7 +285,7 @@ describe('memory fallback eviction (issue #392)', () => {
             })
         }
         const before = await executionEventService.readEventHistory({ executionId })
-        expect(before.length).toBeLessThanOrEqual(1005)
+        expect(before.length).toBe(1000)
         // critical events must land even when the list is at the cap
         const critical = await executionEventService.emit({
             executionId,
@@ -282,6 +295,6 @@ describe('memory fallback eviction (issue #392)', () => {
         const after = await executionEventService.readEventHistory({ executionId })
         expect(after.some((e) => e.id === critical.id)).toBe(true)
         // and the list must not have grown: oldest non-critical was dropped
-        expect(after.length).toBeLessThanOrEqual(1006)
+        expect(after.length).toBe(1000)
     })
 })
