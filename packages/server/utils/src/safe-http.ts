@@ -5,7 +5,7 @@ import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios'
 import axiosRetry from 'axios-retry'
 import { RequestFilteringHttpAgent, RequestFilteringHttpsAgent } from 'request-filtering-agent'
 
-function parseAllowListFromEnv(): string[] {
+export function parseAllowListFromEnv(): string[] {
     const raw = process.env['AP_SSRF_ALLOW_LIST']
     if (!raw) return []
     return raw.split(',').map((s) => s.trim()).filter(Boolean)

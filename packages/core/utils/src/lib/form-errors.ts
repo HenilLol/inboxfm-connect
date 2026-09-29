@@ -9,4 +9,6 @@ export const formErrors = {
     apiKeyExpiryMustBeFuture: 'apiKeyExpiryMustBeFuture',
     activeFlowsLimitMin: 'activeFlowsLimitMin',
     activeFlowsLimitMax: 'activeFlowsLimitMax',
+    invalidAiProviderBaseUrl: 'invalidAiProviderBaseUrl',
+    invalidAiProviderApiKeyHeader: 'invalidAiProviderApiKeyHeader',
 } as const
