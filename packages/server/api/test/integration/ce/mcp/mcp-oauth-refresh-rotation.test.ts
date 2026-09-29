@@ -1,7 +1,10 @@
 import { createHash } from 'crypto'
+import { apId } from '@inboxfm-connect/core-utils'
+import { cryptoUtils } from '@inboxfm-connect/server-utils'
 import { FastifyInstance } from 'fastify'
 import { StatusCodes } from 'http-status-codes'
 import { mcpOAuthTokenService } from '../../../../src/app/mcp/oauth/token/mcp-oauth-token.service'
+import { db } from '../../../helpers/db'
 import { setupTestEnvironment, teardownTestEnvironment } from '../../../helpers/test-setup'
 
 let app: FastifyInstance | null = null
@@ -123,5 +126,36 @@ describe('MCP OAuth refresh-token rotation', () => {
             },
         })
         expect(legitimateRefresh?.statusCode).toBe(StatusCodes.BAD_REQUEST)
+    })
+
+    it('rejects a refresh whose expiresAt has passed via the SQL expiry clause', async () => {
+        const clientId = await registerClient('https://expired-test.example.com/callback')
+        const rawRefreshToken = `expired-${'e'.repeat(50)}`
+        const now = new Date().toISOString()
+        await db.save('mcp_oauth_token', {
+            id: apId(),
+            refreshToken: cryptoUtils.hashSHA256(rawRefreshToken),
+            clientId,
+            userId: 'user-expired-1',
+            projectId: null,
+            platformId: 'platform-expired-1',
+            scopes: ['mcp'],
+            expiresAt: new Date(Date.now() - 60_000).toISOString(),
+            revoked: false,
+            created: now,
+            updated: now,
+        })
+
+        const response = await app?.inject({
+            method: 'POST',
+            url: '/token',
+            payload: {
+                grant_type: 'refresh_token',
+                client_id: clientId,
+                refresh_token: rawRefreshToken,
+            },
+        })
+        expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
+        expect(response?.json().error).toBe('invalid_grant')
     })
 })
