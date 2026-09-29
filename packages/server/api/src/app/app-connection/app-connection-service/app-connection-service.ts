@@ -4,6 +4,7 @@ import { FastifyBaseLogger } from 'fastify'
 import semver from 'semver'
 import { ArrayContains, Equal, FindOperator, FindOptionsWhere, ILike, In } from 'typeorm'
 import { repoFactory } from '../../core/db/repo-factory'
+import { distributedStore } from '../../database/redis-connections'
 import { projectMemberService } from '../../ee/projects/project-members/project-member.service'
 import { containsSecretManagerReference, secretManagersService } from '../../ee/secret-managers/secret-managers.service'
 import { encryptUtils } from '../../helper/encryption'
@@ -26,6 +27,24 @@ import { appConnectionHandler } from './app-connection.handler'
 import { oauth2Handler } from './oauth2'
 import { oauth2Util } from './oauth2/oauth2-util'
 export const appConnectionsRepo = repoFactory(AppConnectionEntity)
+
+// Upsert race guard (issue F29): app_connection has no unique index on
+// (platformId, externalId, scope), so two overlapping upserts of the same
+// connection both read "no existing row" and insert two rows with different
+// ids. Serialize the read-modify-write behind a per-key SET NX lock; the
+// loser re-reads and updates the winner's row instead of inserting.
+// Fail-open on Redis errors so a Redis outage never blocks connection
+// creation (same posture as the trigger-binding lock).
+async function acquireUpsertLockOrReadExisting({ externalId, scope, platformId, projectIds, log }: { externalId: string, scope: string, platformId: string, projectIds: string[] | null, log: FastifyBaseLogger }): Promise<boolean> {
+    const key = ['app-connection', 'upsert-lock', platformId, externalId, scope, projectIds ?? 'no-projects'].join(':')
+    try {
+        return await distributedStore.putIfAbsent(key, 1, 60)
+    }
+    catch (error) {
+        log.warn({ error }, 'App connection upsert lock unavailable - failing open')
+        return true
+    }
+}
 
 export const appConnectionService = (log: FastifyBaseLogger) => ({
     async upsert(params: UpsertParams): Promise<AppConnectionWithoutSensitiveData> {
@@ -63,12 +82,24 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
             ...value,
         })
 
-        const existingConnection = await appConnectionsRepo().findOneBy({
+        // Serialize overlapping upserts of the same connection (issue F29).
+        const acquiredUpsertLock = await acquireUpsertLockOrReadExisting({ externalId, scope, platformId, projectIds, log })
+        let existingConnection = await appConnectionsRepo().findOneBy({
             externalId,
             scope,
             platformId,
             ...(projectIds ? { projectIds: ArrayContains(projectIds) } : {}),
         })
+        if (!acquiredUpsertLock && isNil(existingConnection)) {
+            // Lost the lock and this read raced a concurrent insert: re-read once
+            // so this request updates the winner's row instead of inserting a duplicate.
+            existingConnection = await appConnectionsRepo().findOneBy({
+                externalId,
+                scope,
+                platformId,
+                ...(projectIds ? { projectIds: ArrayContains(projectIds) } : {}),
+            })
+        }
 
         const newId = existingConnection?.id ?? apId()
         const connection = {
