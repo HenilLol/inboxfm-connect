@@ -7,6 +7,7 @@ import {
   propsValidation,
 } from '@inboxfm-connect/pieces-common';
 import { grokAuth } from '../common/auth';
+import { trimHistoryToBudget } from '../common/history-guard';
 import { 
   createModelProperty, 
   createTemperatureProperty,
@@ -351,7 +352,10 @@ export const askGrok = createAction({
           ...conversationMessages.slice(messageHistory.length),
           assistantMessage,
         ];
-        const trimmedHistory = newHistory.slice(-30);
+        // Count cap first, then the token budget (issue #385): large
+        // messages can pass the 30-message cap and still exceed the model
+        // window, which wedges every later run for this memoryKey.
+        const trimmedHistory = trimHistoryToBudget(newHistory.slice(-30));
         await store.put(memoryKey, trimmedHistory, StoreScope.PROJECT);
       }
 

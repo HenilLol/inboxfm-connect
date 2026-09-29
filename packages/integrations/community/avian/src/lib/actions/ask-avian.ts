@@ -1,4 +1,5 @@
 import { avianAuth } from '../auth';
+import { trimHistoryToBudget } from '../common/history-guard';
 import { createAction, Property, StoreScope } from '@inboxfm-connect/pieces-framework';
 import OpenAI from 'openai';
 import { baseUrl } from '../common/common';
@@ -197,6 +198,10 @@ export const askAvian = createAction({
           messageHistory.length - MAX_HISTORY_MESSAGES
         );
       }
+      // Count cap first, then the token budget (issue #385): 50 large
+      // messages can still exceed the model window, which wedges every
+      // later run for this memoryKey.
+      messageHistory = trimHistoryToBudget(messageHistory);
       await store.put(memoryKey, messageHistory, StoreScope.PROJECT);
     }
 
