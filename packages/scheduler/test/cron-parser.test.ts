@@ -172,3 +172,31 @@ describe('Cron Parser & Validator', () => {
         })
     })
 })
+
+
+describe('validateCronExpression fireability (issue #389)', () => {
+    it('rejects syntactically valid crons that can never fire', () => {
+        expect(cronParser.validateCronExpression('0 0 31 2 *')).toBe(false) // 31 February
+        expect(cronParser.validateCronExpression('0 0 30 2 *')).toBe(false) // 30 February
+        expect(cronParser.validateCronExpression('0 0 31 4 *')).toBe(false) // 31 April
+        expect(cronParser.validateCronExpression('0 0 31 4,6,9,11 *')).toBe(false) // 31 in 30-day months
+    })
+
+    it('keeps fireable day/month combinations', () => {
+        expect(cronParser.validateCronExpression('0 0 29 2 *')).toBe(true) // leap-day, fires on leap years
+        expect(cronParser.validateCronExpression('0 0 31 1,3 *')).toBe(true) // Jan/Mar 31
+        expect(cronParser.validateCronExpression('0 0 30 2,4 *')).toBe(true) // 30th — April has one
+        expect(cronParser.validateCronExpression('0 0 31 * *')).toBe(true) // wildcard month
+        expect(cronParser.validateCronExpression('0 0 * 2 *')).toBe(true) // wildcard dom
+        expect(cronParser.validateCronExpression('*/5 * * * *')).toBe(true)
+    })
+
+    it('answers the unfireable case without the multi-second clock scan', () => {
+        // The naive probe (run computeNextTick and catch the search-window throw)
+        // takes >7s on '0 0 31 2 *'; the structural check is O(1) on the field sets.
+        const t0 = performance.now()
+        expect(cronParser.validateCronExpression('0 0 31 2 *')).toBe(false)
+        const ms = performance.now() - t0
+        expect(ms).toBeLessThan(100)
+    })
+})

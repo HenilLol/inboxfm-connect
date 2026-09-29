@@ -174,12 +174,46 @@ function parseCronExpression(expression: string): ParsedCronSchedule {
 
 function validateCronExpression(expression: string): boolean {
     try {
-        parseCronExpression(expression)
+        const parsed = parseCronExpression(expression)
+        // Syntax alone accepts expressions that can never fire (e.g. "0 0 31 2 *" —
+        // 31 February). Reject those at the API boundary with the service's clean
+        // 400 instead of an uncaught computeNextRunAt throw turning create/update
+        // into a 500 (issue #389).
+        if (!isFireable(parsed)) {
+            return false
+        }
         return true
     }
     catch {
         return false
     }
+}
+
+// Structural fireability check — O(1) on the parsed field sets, no clock scan:
+// a dom/month combination needs at least one real calendar date where both
+// match, which requires a month whose length reaches the largest requested day.
+// Feb 29 only exists in leap years, so {29} + {2} is kept (probing that is a
+// 4-year scan; the structural truth table below answers it without one).
+const MONTH_DAYS: Record<number, number> = {
+    1: 31, 2: 29, 3: 31, 4: 30, 5: 31, 6: 30,
+    7: 31, 8: 31, 9: 30, 10: 31, 11: 30, 12: 31,
+}
+
+function isFireable(parsed: ParsedCronSchedule): boolean {
+    const { daysOfMonth, months } = parsed
+    // Wildcard dom/month always fire.
+    if (daysOfMonth.wildcard || months.wildcard) {
+        return true
+    }
+    for (const month of months.values) {
+        const monthMax = MONTH_DAYS[month] ?? 29
+        for (const day of daysOfMonth.values) {
+            if (day <= monthMax) {
+                return true
+            }
+        }
+    }
+    return false
 }
 
 function computeNextTick({ cronExpression, timezone = 'UTC', fromDate = new Date() }: NextTickOptions & { cronExpression: string }): Date {
