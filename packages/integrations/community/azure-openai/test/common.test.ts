@@ -1,6 +1,8 @@
 import {
   calculateMessagesTokenSize,
   exceedsHistoryLimit,
+  historyBudget,
+  modelTokenLimit,
   reduceContextSize,
 } from '../src/lib/common';
 
@@ -98,5 +100,61 @@ describe('exceedsHistoryLimit (guard fires on production shape)', () => {
     const roles = buildMessages(60, 100); // 1500 tokens
     const rolesTokens = await calculateMessagesTokenSize(roles, MODEL);
     expect(exceedsHistoryLimit(historyTokens + rolesTokens, MODEL, 100)).toBe(true);
+  });
+});
+
+
+describe('historyBudget: window-derived budgets (issue #377)', () => {
+  it('gives a 128k model the full 32k system cap, not ~1.7k', () => {
+    // Old behavior: budget derived from completion maxTokens alone capped
+    // history at (2048-2048)/1.1 -> 0 tokens of history on the default props.
+    // Now: min(32k system cap, 128k window - 2048 completion) / 1.1 -> the cap.
+    const budget = historyBudget('gpt-4o', 2048);
+    expect(budget).toBe(32000 / 1.1);
+    // ~29k of usable history vs ~0 before: the guard no longer truncates
+    // aggressively on modern models.
+    expect(budget).toBeGreaterThan(10000);
+  });
+
+  it('never exceeds the 32k system cap even on 1M-context models', () => {
+    expect(historyBudget('gpt-4.1', 2048)).toBe(32000 / 1.1);
+  });
+
+  it('subtracts the completion budget from small-window models', () => {
+    // gpt-4: 8192 window - 2048 completion -> 5586 usable history
+    expect(historyBudget('gpt-4', 2048)).toBe((8192 - 2048) / 1.1);
+  });
+
+  it('falls back to the conservative legacy budget for unknown models', () => {
+    // '' (unset model prop) and unknown deployments keep the 2048 fallback
+    expect(modelTokenLimit('')).toBe(2048);
+    expect(historyBudget('', 2048)).toBe((2048 - 2048) / 1.1);
+  });
+});
+
+describe('modelTokenLimit table (issue #377)', () => {
+  // Base gpt-3.5-turbo is 4096 — only the -16k variants carry the larger
+  // window (16 * 1024 + 1, the sibling piece's off-by-one convention).
+  // Overquoting the base model points the over-admission guard in the
+  // wrong direction: 400 rejections are worse than an early truncate.
+  const windows: Array<[string, number]> = [
+    ['gpt-4o', 128000],
+    ['gpt-4o-mini', 128000],
+    ['gpt-4.1', 1000000],
+    ['gpt-4.1-mini', 1000000],
+    ['gpt-4', 8192],
+    ['gpt-35-turbo', 4096],
+    ['gpt-3.5-turbo', 4096],
+    ['gpt-35-turbo-16k', 16 * 1024 + 1],
+    ['gpt-3.5-turbo-16k', 16 * 1024 + 1],
+  ];
+
+  it.each(windows)('quotes %s at its real context window', (model, window) => {
+    expect(modelTokenLimit(model)).toBe(window);
+  });
+
+  it('keeps unknown models on the conservative 2048 fallback', () => {
+    expect(modelTokenLimit('')).toBe(2048);
+    expect(modelTokenLimit('a-custom-finetuned-model')).toBe(2048);
   });
 });

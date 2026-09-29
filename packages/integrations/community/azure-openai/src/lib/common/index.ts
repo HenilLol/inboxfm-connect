@@ -54,25 +54,49 @@ export const reduceContextSize = async (
   return currentMessages;
 };
 
+// The history budget is what the model can actually accept as input: its
+// context window minus the completion budget, capped by the platform's 32k
+// system limit, with the /1.1 safety margin (issue #377). Previously the
+// completion maxTokens prop alone drove the limit, so a 128k model with a
+// 2048 completion budget throttled history to ~1.7k tokens.
+export const historyBudget = (model: string, maxTokens: number): number => {
+  const byModelWindow = (modelTokenLimit(model) - maxTokens) / 1.1;
+  return Math.min(tokenLimit / 1.1, byModelWindow);
+};
+
 export const exceedsHistoryLimit = (
   tokenLength: number,
   model: string,
   maxTokens: number
 ) => {
-  if (
-    tokenLength >= tokenLimit / 1.1 ||
-    tokenLength >= (modelTokenLimit(model) - maxTokens) / 1.1
-  ) {
-    return true;
-  }
-
-  return false;
+  return tokenLength >= historyBudget(model, maxTokens);
 };
 
 export const tokenLimit = 32000;
 
-export const modelTokenLimit = (model: string) => {
+// Context windows for the Azure OpenAI models this piece's deployments run,
+// aligned with the openai piece's sibling table (issue #377): base
+// gpt-3.5-turbo is 4096 — only the -16k variants are 16k. Unknown models
+// keep the conservative 2048 fallback so deployments we cannot resolve to a
+// known model never over-admit history.
+export const modelTokenLimit = (model: string): number => {
   switch (model) {
+    case 'gpt-4o':
+    case 'gpt-4o-mini':
+      return 128000;
+    case 'gpt-4.1':
+    case 'gpt-4.1-mini':
+      return 1000000;
+    case 'gpt-35-turbo':
+    case 'gpt-3.5-turbo':
+      return 4096;
+    case 'gpt-35-turbo-16k':
+    case 'gpt-3.5-turbo-16k':
+    case 'gpt-35-turbo-1106':
+    case 'gpt-3.5-turbo-1106':
+      return 16385;
+    case 'gpt-4':
+      return 8192;
     default:
       return 2048;
   }
