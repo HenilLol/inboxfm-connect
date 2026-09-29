@@ -1,4 +1,4 @@
-import { Property, OAuth2PropertyValue } from '@inboxfm-connect/pieces-framework';
+import { Property } from '@inboxfm-connect/pieces-framework';
 import { BexioClient } from './client';
 import { BexioAccount, BexioTax, BexioCurrency } from './types';
 import { bexioAuth } from '../auth';
@@ -26,19 +26,20 @@ export const bexioCommonProps = {
 
         try {
           const client = new BexioClient(auth);
-          const accounts = await client.get<BexioAccount[]>('/accounts');
+          const accounts = await client.get<BexioAccount[]>('/3.0/accounting/accounts');
 
           return {
             disabled: false,
-            options: accounts.map((account) => ({
+            options: (accounts ?? []).map((account) => ({
               label: `${account.account_no} - ${account.name}`,
               value: account.id,
             })),
           };
         } catch (error) {
+          console.error('[Bexio] Failed to load accounts:', error);
           return {
             disabled: true,
-            placeholder: 'Failed to load accounts',
+            placeholder: 'Failed to load accounts. Please check your credentials or permissions.',
             options: [],
           };
         }
@@ -63,19 +64,20 @@ export const bexioCommonProps = {
 
       try {
         const client = new BexioClient(auth);
-        const taxes = await client.get<BexioTax[]>('/taxes');
+        const taxes = await client.get<BexioTax[]>('/3.0/taxes');
 
         return {
           disabled: false,
-          options: taxes.map((tax) => ({
+          options: (taxes ?? []).map((tax) => ({
             label: `${tax.name} (${tax.percentage}%)`,
             value: tax.id,
           })),
         };
       } catch (error) {
+        console.error('[Bexio] Failed to load taxes:', error);
         return {
           disabled: true,
-          placeholder: 'Failed to load taxes',
+          placeholder: 'Failed to load taxes. Please check your credentials or permissions.',
           options: [],
         };
       }
@@ -108,15 +110,16 @@ export const bexioCommonProps = {
 
           return {
             disabled: false,
-            options: currencies.map((currency) => ({
+            options: (currencies ?? []).map((currency) => ({
               label: currency.name,
               value: currency.id,
             })),
           };
         } catch (error) {
+          console.error('[Bexio] Failed to load currencies:', error);
           return {
             disabled: true,
-            placeholder: 'Failed to load currencies',
+            placeholder: 'Failed to load currencies. Please check your credentials or permissions.',
             options: [],
           };
         }
@@ -124,5 +127,3 @@ export const bexioCommonProps = {
     });
   },
 };
-
-
