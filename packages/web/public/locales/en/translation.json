@@ -2918,5 +2918,9 @@
   "Created at": "Created at",
   "Updated at": "Updated at",
   "Documentation": "Documentation",
-  "InboxFM Main Project": "InboxFM Main Project"
+  "InboxFM Main Project": "InboxFM Main Project",
+  "invalidHexColor": "Invalid hex color format (expected #RGB or #RRGGBB)",
+  "invalidCloudflareAccountId": "Account ID must contain only alphanumeric characters, underscores, and hyphens",
+  "invalidCloudflareGatewayId": "Gateway ID must contain only alphanumeric characters, underscores, and hyphens",
+  "invalidAzureResourceName": "Azure resource name must contain only alphanumeric characters and hyphens, start and end with an alphanumeric character, and be between 2 and 64 characters"
 }

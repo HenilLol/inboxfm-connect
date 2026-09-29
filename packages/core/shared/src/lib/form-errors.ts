@@ -5,8 +5,12 @@ export const formErrors = {
     invalidGitRepoRemoteUrl: 'invalidGitRepoRemoteUrl',
     invalidExternalId: 'invalidExternalId',
     invalidFileName: 'invalidFileName',
+    invalidHexColor: 'invalidHexColor',
     messageRequiresContentOrFiles: 'messageRequiresContentOrFiles',
     apiKeyExpiryMustBeFuture: 'apiKeyExpiryMustBeFuture',
     activeFlowsLimitMin: 'activeFlowsLimitMin',
     activeFlowsLimitMax: 'activeFlowsLimitMax',
+    invalidCloudflareAccountId: 'invalidCloudflareAccountId',
+    invalidCloudflareGatewayId: 'invalidCloudflareGatewayId',
+    invalidAzureResourceName: 'invalidAzureResourceName',
 } as const

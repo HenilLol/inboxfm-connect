@@ -1,4 +1,4 @@
-import { AIProviderName, BaseModelSchema } from '@inboxfm-connect/core-utils'
+import { AIProviderName, BaseModelSchema, formErrors } from '@inboxfm-connect/core-utils'
 import { z } from 'zod'
 
 export enum AIProviderModelType {
@@ -70,10 +70,10 @@ export type OpenAICompatibleProviderConfig = z.infer<typeof OpenAICompatibleProv
 
 export const CloudflareGatewayProviderConfig = z.object({
     accountId: z.string().regex(/^[a-zA-Z0-9_-]+$/, {
-        message: 'Account ID must contain only alphanumeric characters, underscores, and hyphens',
+        message: formErrors.invalidCloudflareAccountId,
     }),
     gatewayId: z.string().regex(/^[a-zA-Z0-9_-]+$/, {
-        message: 'Gateway ID must contain only alphanumeric characters, underscores, and hyphens',
+        message: formErrors.invalidCloudflareGatewayId,
     }),
     models: z.array(ProviderModelConfig),
     vertexProject: z.string().optional(),
@@ -85,7 +85,7 @@ export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
 
 export const AzureProviderConfig = z.object({
     resourceName: z.string().regex(/^[a-zA-Z0-9]([a-zA-Z0-9-]{0,62}[a-zA-Z0-9])$/, {
-        message: 'Azure resource name must contain only alphanumeric characters and hyphens, start and end with an alphanumeric character, and be between 2 and 64 characters',
+        message: formErrors.invalidAzureResourceName,
     }),
     apiVersion: z.preprocess(
         (v) => (typeof v === 'string' && v.trim().length === 0 ? undefined : v),
