@@ -19,18 +19,27 @@ class ApiClient {
   private projectId: string | null = null
 
   constructor() {
-    if (typeof localStorage !== 'undefined') {
-      this.token = localStorage.getItem('ap-token')
-      this.projectId = localStorage.getItem('ap-project-id')
+    // The session token is a 7-day JWT — the account's full credential — so it
+    // lives in sessionStorage, not localStorage: a script that can read the
+    // origin's storage (XSS, malicious extension, compromised third-party
+    // script) can still exfiltrate it during the tab's lifetime, but no longer
+    // finds a parked 7-day credential on every visit. httpOnly cookies are the
+    // complete fix but require CORS + proxying changes (issue #383).
+    if (typeof sessionStorage !== 'undefined') {
+      this.token = sessionStorage.getItem('ap-token')
+      this.projectId = sessionStorage.getItem('ap-project-id')
     }
   }
 
   setToken(token: string | null) {
     this.token = token
-    if (typeof localStorage !== 'undefined') {
+    if (typeof sessionStorage !== 'undefined') {
       if (token) {
-        localStorage.setItem('ap-token', token)
+        sessionStorage.setItem('ap-token', token)
       } else {
+        sessionStorage.removeItem('ap-token')
+        // Clear a token persisted by an older build so stale credentials do
+        // not survive an upgrade in the world-readable store.
         localStorage.removeItem('ap-token')
       }
     }
@@ -42,10 +51,11 @@ class ApiClient {
 
   setProjectId(projectId: string | null) {
     this.projectId = projectId
-    if (typeof localStorage !== 'undefined') {
+    if (typeof sessionStorage !== 'undefined') {
       if (projectId) {
-        localStorage.setItem('ap-project-id', projectId)
+        sessionStorage.setItem('ap-project-id', projectId)
       } else {
+        sessionStorage.removeItem('ap-project-id')
         localStorage.removeItem('ap-project-id')
       }
     }
