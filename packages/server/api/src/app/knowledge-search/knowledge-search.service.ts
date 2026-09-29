@@ -22,16 +22,20 @@ export const knowledgeSearchService = (log: FastifyBaseLogger): KnowledgeSearchS
         // pass through. Per-call scope: nothing is cached across requests.
         const resolvedEmbedder = await resolveEmbedderForQuery({ platformId, log, embedder: params.embedder })
         const memoizedEmbedder = memoizeSingleTextEmbedder(resolvedEmbedder)
+        // A null embedder means semantic search is unavailable - for the single-kind
+        // branches that is a plain absence, but passing explicit null down to
+        // tool-search makes it indistinguishable from "not provided" at its
+        // dispatcher (null ?? resolve re-resolves per branch: one provider-config
+        // DB read + decrypt per branch). Omit the key entirely so each branch
+        // resolves exactly once on its own - the pre-#405 behavior - and the
+        // unified branch is covered by the single resolution above.
+
+        const singleKindOpts = memoizedEmbedder === null
+            ? { platformId, projectId, limit, pieceName, audiences }
+            : { platformId, projectId, limit, pieceName, audiences, embedder: memoizedEmbedder }
 
         if (objectKind === 'action') {
-            const { results, mode } = await toolSearchService(log).searchActions(query, {
-                platformId,
-                projectId,
-                limit,
-                pieceName,
-                audiences,
-                embedder: memoizedEmbedder,
-            })
+            const { results, mode } = await toolSearchService(log).searchActions(query, singleKindOpts)
             const mappedResults: KnowledgeSearchResult[] = results.map((item) => ({
                 pieceName: item.pieceName,
                 objectName: item.actionName,
@@ -46,13 +50,7 @@ export const knowledgeSearchService = (log: FastifyBaseLogger): KnowledgeSearchS
         }
 
         if (objectKind === 'trigger') {
-            const { results, mode } = await toolSearchService(log).searchTriggers(query, {
-                platformId,
-                projectId,
-                limit,
-                pieceName,
-                embedder: memoizedEmbedder,
-            })
+            const { results, mode } = await toolSearchService(log).searchTriggers(query, singleKindOpts)
             const mappedResults: KnowledgeSearchResult[] = results.map((item) => ({
                 pieceName: item.pieceName,
                 objectName: item.triggerName,

@@ -1,7 +1,7 @@
 import { ToolSearchEmbedder } from '../../../../src/app/tool-search/embedder'
 import { knowledgeSearchService } from '../../../../src/app/knowledge-search/knowledge-search.service'
 import { toolSearchService } from '../../../../src/app/tool-search/tool-search.service'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 // Issue: objectKind 'all' runs searchActions + searchTriggers over the same query.
 // Each semantic branch embeds the query independently, so one unified search pays
@@ -75,5 +75,31 @@ describe('knowledge search unified query - embed cost dedup', () => {
         // a different text must NOT hit the memo
         await passed.embed(['another query'])
         expect(embedCalls()).toBe(2)
+    })
+})
+
+describe('null embedder propagation (codeant on #405)', () => {
+    it('omits the embedder key when resolution returned null - no explicit null downstream', async () => {
+        await knowledgeSearchService({} as never).query({
+            query: 'send a slack message',
+            objectKind: 'action',
+            platformId: 'platform-x',
+            embedder: null,
+        })
+        expect(passedEmbedders.length).toBe(1)
+        expect(passedEmbedders[0]).toBeUndefined()
+    })
+
+    it('still wraps and passes a resolved embedder to single-kind branches', async () => {
+        const { embedder } = countingEmbedder()
+        await knowledgeSearchService({} as never).query({
+            query: 'send a slack message',
+            objectKind: 'trigger',
+            platformId: 'platform-x',
+            embedder,
+        })
+        expect(passedEmbedders.length).toBe(1)
+        expect(passedEmbedders[0]).toBeDefined()
+        expect(passedEmbedders[0]).not.toBe(embedder) // memo-wrapped
     })
 })
