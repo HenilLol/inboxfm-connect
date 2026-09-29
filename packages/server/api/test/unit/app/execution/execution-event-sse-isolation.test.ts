@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ExecutionEvent } from '@inboxfm-connect/shared'
 
 vi.mock(
@@ -66,6 +66,6 @@ describe('executionEventService - SSE listener isolation (issue #158)', () => {
 
         await executionEventService.unsubscribe({ executionId: execId, listener: listenerB })
         expect(pubsub.unsubscribe).toHaveBeenCalledTimes(1)
-        expect(pubsub.unsubscribe).toHaveBeenCalledWith(execution::events)
+        expect(pubsub.unsubscribe).toHaveBeenCalledWith('execution:' + execId + ':events')
     })
 })
