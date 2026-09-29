@@ -1,10 +1,10 @@
 import { ActivepiecesError, AIProviderName, apId, ErrorCode, isNil, PlatformId, spreadIfDefined } from '@inboxfm-connect/core-utils'
+import { cryptoUtils } from '@inboxfm-connect/server-utils'
 import { ActivePiecesProviderAuthConfig, AIProviderAuthConfig, AIProviderConfig, AIProviderModel, AIProviderWithoutSensitiveData, AzureProviderConfig, BaseAIProviderAuthConfig, BedrockProviderAuthConfig, BedrockProviderConfig, CreateAIProviderRequest, GetProviderConfigResponse, UpdateAIProviderRequest } from '@inboxfm-connect/shared'
 import { FastifyBaseLogger } from 'fastify'
 import cron from 'node-cron'
 import { repoFactory } from '../core/db/repo-factory'
 import { flagService } from '../flags/flag.service'
-import { cryptoUtils } from '@inboxfm-connect/server-utils'
 import { encryptUtils } from '../helper/encryption'
 import { AIProviderEntity, AIProviderSchema } from './ai-provider-entity'
 import { aiProviders } from './providers'
@@ -57,16 +57,22 @@ export const aiProviderService = (log: FastifyBaseLogger) => ({
         const { config, auth } = await this.getConfigOrThrow({ platformId, provider })
 
         const fingerprint = getAuthCacheFingerprint({ provider, auth, config })
-        const cacheKey = `${provider}-${fingerprint}`
+        // Review spot-check (platform scoping): two platforms alternating on the
+        // same provider each ran a supersession sweep that deleted the other
+        // platform's entry - the cache never hit. platformId in the key scopes
+        // the sweep per platform; rotation detection is unchanged because a
+        // rotation on THIS platform produces a different fingerprint and the
+        // old entry for THIS platformId still matches the sweep prefix.
+        const cacheKey = `${platformId}-${provider}-${fingerprint}`
         if (modelsCache.has(cacheKey) && !('models' in config)) {
             return modelsCache.get(cacheKey)!
         }
 
         // Rotation cleanup (issue #402): a credential change means every other
-        // cached entry for this provider is superseded — drop it now instead of
-        // letting retired fingerprints linger until the midnight sweep.
+        // cached entry for this platform + provider is superseded — drop it now
+        // instead of letting retired fingerprints linger until the midnight sweep.
         for (const key of modelsCache.keys()) {
-            if (key.startsWith(`${provider}-`) && key !== cacheKey) {
+            if (key.startsWith(`${platformId}-${provider}-`) && key !== cacheKey) {
                 modelsCache.delete(key)
             }
         }
@@ -80,7 +86,7 @@ export const aiProviderService = (log: FastifyBaseLogger) => ({
         // credential generation - the last writer wins instead of accumulating
         // generations.
         for (const key of modelsCache.keys()) {
-            if (key.startsWith(`${provider}-`) && key !== cacheKey) {
+            if (key.startsWith(`${platformId}-${provider}-`) && key !== cacheKey) {
                 modelsCache.delete(key)
             }
         }
