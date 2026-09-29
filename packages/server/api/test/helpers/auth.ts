@@ -12,7 +12,7 @@ const generateToken = ({
     algorithm = 'HS256',
     key = 'secret',
     keyId = '1',
-    issuer = 'activepieces',
+    issuer = process.env.AP_JWT_ISSUER || 'activepieces',
 }: GenerateTokenParams): string => {
     const options: SignOptions = {
         algorithm,
@@ -31,7 +31,7 @@ export const generateMockToken = async (
 
     return generateToken({
         payload: mockPrincipal,
-        issuer: 'activepieces',
+        issuer: process.env.AP_JWT_ISSUER || 'activepieces',
     })
 }
 
