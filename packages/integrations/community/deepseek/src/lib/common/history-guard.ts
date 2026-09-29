@@ -36,5 +36,15 @@ export const trimHistoryToBudget = <T>(
   ) {
     current = current.slice(Math.max(1, Math.round(current.length * 0.1)));
   }
+  // Front-trimming can strand an assistant/model turn at the head; providers
+  // that enforce user-first sequencing (OpenAI-compatible APIs) reject the
+  // next request. Drop leading non-user turns so the head is a user turn
+  // again — keep at least one message whatever happens (review #386).
+  while (
+    current.length > 1 &&
+    (current[0] as { role?: unknown }).role !== 'user'
+  ) {
+    current = current.slice(1);
+  }
   return current;
 };

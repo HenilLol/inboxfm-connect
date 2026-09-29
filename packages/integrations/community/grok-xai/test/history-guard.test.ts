@@ -44,3 +44,18 @@ describe('trimHistoryToBudget on top of the count cap (issue #385)', () => {
     expect(Number.isFinite(estimateTokens({ content: undefined }))).toBe(true);
   });
 });
+
+describe('role-aware head after trimming (review #386)', () => {
+  it('drops leading assistant turns so the head is a user turn', () => {
+    // Front-trimming strands an assistant message at the head; OpenAI-compatible
+    // providers reject user-first sequencing violations on the next request.
+    const messages = [
+      ...buildMessages(10, 40).map((m, i) => ({ ...m, role: i < 4 ? 'assistant' : 'user' })),
+    ]
+    const result = trimHistoryToBudget(messages, 50) // forces a deep trim
+    expect(result.length).toBeGreaterThanOrEqual(1)
+    if (result.length > 1) {
+      expect(result[0].role).toBe('user')
+    }
+  })
+})

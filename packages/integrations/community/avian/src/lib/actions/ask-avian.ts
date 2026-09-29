@@ -154,6 +154,10 @@ export const askAvian = createAction({
     let messageHistory: any[] | null = [];
     if (memoryKey) {
       messageHistory = (await store.get(memoryKey, StoreScope.PROJECT)) ?? [];
+      // Trim the RESTORED history too (review #386): a wedged memoryKey must
+      // recover on this run — the store.put side never runs when the request
+      // itself fails.
+      messageHistory = trimHistoryToBudget(messageHistory);
     }
 
     messageHistory.push({

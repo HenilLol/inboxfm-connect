@@ -53,8 +53,14 @@ export const chatGemini = createAction({
 
     if (memoryKey) {
       const storedHistory = await store.get(memoryKey, StoreScope.PROJECT);
+      // Trim the RESTORED history too (review #386): a wedged memoryKey must
+      // recover on this run — the store.put side never runs when the request
+      // itself fails.
       if (Array.isArray(storedHistory)) {
-        history = storedHistory;
+        // Trim the RESTORED history (review #386): a wedged memoryKey must
+        // recover on this run — the store.put side never runs when the
+        // request itself fails.
+        history = trimHistoryToBudget(storedHistory);
       }
     }
 

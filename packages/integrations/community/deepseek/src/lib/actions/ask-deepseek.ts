@@ -152,6 +152,10 @@ export const askDeepseek = createAction({
     // If memory key is set, retrieve messages stored in history
     if (memoryKey) {
       messageHistory = (await store.get(memoryKey, StoreScope.PROJECT)) ?? [];
+      // Trim the RESTORED history too (review #386): a memoryKey wedged by an
+      // oversized stored history must recover on this run, not keep failing —
+      // the store.put side alone never runs when the request itself fails.
+      messageHistory = trimHistoryToBudget(messageHistory);
     }
 
     // Add user prompt to message history

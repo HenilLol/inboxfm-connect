@@ -275,6 +275,10 @@ export const askGrok = createAction({
     let messageHistory: any[] = [];
     if (memoryKey) {
       messageHistory = (await store.get(memoryKey, StoreScope.PROJECT)) ?? [];
+      // Trim the RESTORED history too (review #386): a wedged memoryKey must
+      // recover on this run — the store.put side never runs when the request
+      // itself fails.
+      messageHistory = trimHistoryToBudget(messageHistory);
       if (messageHistory.length > 0) {
         conversationMessages = [...messageHistory, ...conversationMessages];
       }
