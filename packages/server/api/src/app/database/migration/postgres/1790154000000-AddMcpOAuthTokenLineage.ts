@@ -38,7 +38,7 @@ export class AddMcpOAuthTokenLineage1790154000000 implements Migration {
     public async down(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query('DROP INDEX "idx_mcp_oauth_token_family"')
         await queryRunner.query('DROP INDEX "idx_mcp_oauth_token_previous_refresh"')
-        await queryRunner.query(`ALTER TABLE "mcp_oauth_token" ALTER COLUMN "familyId" SET DEFAULT 'legacy'`)
+        await queryRunner.query('ALTER TABLE "mcp_oauth_token" ALTER COLUMN "familyId" SET DEFAULT \'legacy\'')
         await queryRunner.query('ALTER TABLE "mcp_oauth_token" DROP COLUMN "familyId"')
         await queryRunner.query('ALTER TABLE "mcp_oauth_token" DROP COLUMN "previousRefreshToken"')
     }
