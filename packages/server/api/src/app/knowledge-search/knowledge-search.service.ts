@@ -1,5 +1,7 @@
+import { isNil } from '@inboxfm-connect/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { ToolSearchEmbedder } from '../tool-search/embedder'
+import { resolveEmbedder } from '../tool-search/resolve-embedder'
 import { toolSearchService } from '../tool-search/tool-search.service'
 
 /**
@@ -8,7 +10,18 @@ import { toolSearchService } from '../tool-search/tool-search.service'
  */
 export const knowledgeSearchService = (log: FastifyBaseLogger): KnowledgeSearchService => ({
     async query(params: KnowledgeSearchQueryParams): Promise<KnowledgeSearchQueryResponse> {
-        const { query, limit, pieceName, objectKind = 'all', audiences, platformId, projectId, embedder } = params
+        const { query, limit, pieceName, objectKind = 'all', audiences, platformId, projectId } = params
+
+        // Unified ('all') searches run the action and trigger pipelines over the
+        // SAME query text. Each semantic pipeline embeds the query independently,
+        // so without dedup one unified search pays the embedding API twice for one
+        // identical string - and, when no embedder is injected, resolves the
+        // embedder (a provider-config DB read + decryption) twice as well. Resolve
+        // once per query() call and wrap the embedder with a single-slot memo so
+        // the shared text is embedded exactly once, while distinct texts still
+        // pass through. Per-call scope: nothing is cached across requests.
+        const resolvedEmbedder = await resolveEmbedderForQuery({ platformId, log, embedder: params.embedder })
+        const memoizedEmbedder = memoizeSingleTextEmbedder(resolvedEmbedder)
 
         if (objectKind === 'action') {
             const { results, mode } = await toolSearchService(log).searchActions(query, {
@@ -17,7 +30,7 @@ export const knowledgeSearchService = (log: FastifyBaseLogger): KnowledgeSearchS
                 limit,
                 pieceName,
                 audiences,
-                embedder,
+                embedder: memoizedEmbedder,
             })
             const mappedResults: KnowledgeSearchResult[] = results.map((item) => ({
                 pieceName: item.pieceName,
@@ -38,7 +51,7 @@ export const knowledgeSearchService = (log: FastifyBaseLogger): KnowledgeSearchS
                 projectId,
                 limit,
                 pieceName,
-                embedder,
+                embedder: memoizedEmbedder,
             })
             const mappedResults: KnowledgeSearchResult[] = results.map((item) => ({
                 pieceName: item.pieceName,
@@ -60,14 +73,14 @@ export const knowledgeSearchService = (log: FastifyBaseLogger): KnowledgeSearchS
                 limit,
                 pieceName,
                 audiences,
-                embedder,
+                embedder: memoizedEmbedder,
             }),
             toolSearchService(log).searchTriggers(query, {
                 platformId,
                 projectId,
                 limit,
                 pieceName,
-                embedder,
+                embedder: memoizedEmbedder,
             }),
         ])
 
@@ -111,6 +124,48 @@ export const knowledgeSearchService = (log: FastifyBaseLogger): KnowledgeSearchS
 })
 
 const DEFAULT_SEARCH_LIMIT = 5
+
+/**
+ * Resolves the query-time embedder exactly once per query() call: an injected
+ * embedder wins (test/telemetry seam), otherwise the platform embedder is
+ * resolved from config. Returns null when semantic search is unavailable, so
+ * both branches degrade to the keyword floor together.
+ */
+async function resolveEmbedderForQuery({ platformId, log, embedder }: { platformId?: string, log: FastifyBaseLogger, embedder?: ToolSearchEmbedder | null }): Promise<ToolSearchEmbedder | null> {
+    if (!isNil(embedder)) {
+        return embedder
+    }
+    if (isNil(platformId)) {
+        return null
+    }
+    return resolveEmbedder({ platformId, log })
+}
+
+/**
+ * Wraps an embedder with a one-slot memo over the embed CALL, not the text: two
+ * concurrent embeds of the same texts array share one underlying API call (the
+ * unified pipeline embedding the same query twice), while any different input
+ * misses the memo and hits the API. A null embedder passes through as null.
+ */
+export function memoizeSingleTextEmbedder(embedder: ToolSearchEmbedder | null): ToolSearchEmbedder | null {
+    if (isNil(embedder)) {
+        return null
+    }
+    let inflight: Promise<number[][]> | null = null
+    let memoKey: string | null = null
+    return {
+        ...embedder,
+        async embed(texts: string[]): Promise<number[][]> {
+            const key = JSON.stringify(texts)
+            if (key === memoKey && inflight !== null) {
+                return inflight
+            }
+            memoKey = key
+            inflight = embedder.embed(texts)
+            return inflight
+        },
+    }
+}
 
 export type ObjectKindFilter = 'action' | 'trigger' | 'all'
 
