@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import {
   calculateMessagesTokenSize,
   exceedsHistoryLimit,
@@ -103,16 +104,10 @@ describe('exceedsHistoryLimit (guard fires on production shape)', () => {
   });
 });
 
-
 describe('historyBudget: window-derived budgets (issue #377)', () => {
   it('gives a 128k model the full 32k system cap, not ~1.7k', () => {
-    // Old behavior: budget derived from completion maxTokens alone capped
-    // history at (2048-2048)/1.1 -> 0 tokens of history on the default props.
-    // Now: min(32k system cap, 128k window - 2048 completion) / 1.1 -> the cap.
     const budget = historyBudget('gpt-4o', 2048);
     expect(budget).toBe(32000 / 1.1);
-    // ~29k of usable history vs ~0 before: the guard no longer truncates
-    // aggressively on modern models.
     expect(budget).toBeGreaterThan(10000);
   });
 
@@ -121,22 +116,16 @@ describe('historyBudget: window-derived budgets (issue #377)', () => {
   });
 
   it('subtracts the completion budget from small-window models', () => {
-    // gpt-4: 8192 window - 2048 completion -> 5586 usable history
     expect(historyBudget('gpt-4', 2048)).toBe((8192 - 2048) / 1.1);
   });
 
   it('falls back to the conservative legacy budget for unknown models', () => {
-    // '' (unset model prop) and unknown deployments keep the 2048 fallback
     expect(modelTokenLimit('')).toBe(2048);
     expect(historyBudget('', 2048)).toBe((2048 - 2048) / 1.1);
   });
 });
 
 describe('modelTokenLimit table (issue #377)', () => {
-  // Base gpt-3.5-turbo is 4096 — only the -16k variants carry the larger
-  // window (16 * 1024 + 1, the sibling piece's off-by-one convention).
-  // Overquoting the base model points the over-admission guard in the
-  // wrong direction: 400 rejections are worse than an early truncate.
   const windows: Array<[string, number]> = [
     ['gpt-4o', 128000],
     ['gpt-4o-mini', 128000],
@@ -145,8 +134,8 @@ describe('modelTokenLimit table (issue #377)', () => {
     ['gpt-4', 8192],
     ['gpt-35-turbo', 4096],
     ['gpt-3.5-turbo', 4096],
-    ['gpt-35-turbo-16k', 16 * 1024 + 1],
-    ['gpt-3.5-turbo-16k', 16 * 1024 + 1],
+    ['gpt-35-turbo-16k', 16385],
+    ['gpt-3.5-turbo-16k', 16385],
   ];
 
   it.each(windows)('quotes %s at its real context window', (model, window) => {

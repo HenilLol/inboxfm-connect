@@ -120,17 +120,17 @@ export const reduceContextSize = async (
   maxTokens: number
 ) => {
   // TODO: Summarize context instead of cutoff
-  const cutoffSize = Math.round(messages.length * 0.1);
-  const cutoffMessages = messages.splice(cutoffSize, messages.length - 1);
-
-  if (
-    (await calculateMessagesTokenSize(cutoffMessages, model)) >
-    maxTokens / 1.5
+  let currentMessages = [...messages];
+  while (
+    currentMessages.length > 1 &&
+    (await calculateMessagesTokenSize(currentMessages, model)) >
+      maxTokens / 1.5
   ) {
-    reduceContextSize(cutoffMessages, model, maxTokens);
+    const cutoffSize = Math.max(1, Math.round(currentMessages.length * 0.1));
+    currentMessages = currentMessages.slice(cutoffSize);
   }
 
-  return cutoffMessages;
+  return currentMessages;
 };
 
 export const exceedsHistoryLimit = (
