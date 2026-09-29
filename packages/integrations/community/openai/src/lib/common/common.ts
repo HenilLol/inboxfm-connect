@@ -117,14 +117,18 @@ export const calculateMessagesTokenSize = async (
 export const reduceContextSize = async (
   messages: any[],
   model: string,
-  maxTokens: number
+  maxTokens: number,
+  // Roles/system messages ride along on every request but are not part of the
+  // history being reduced; subtract their tokens from the budget so what
+  // remains actually fits alongside the system prompt (issue #379).
+  rolesTokenLength = 0
 ) => {
   // TODO: Summarize context instead of cutoff
   let currentMessages = [...messages];
   while (
     currentMessages.length > 1 &&
     (await calculateMessagesTokenSize(currentMessages, model)) >
-      maxTokens / 1.5
+      maxTokens / 1.5 - rolesTokenLength
   ) {
     const cutoffSize = Math.max(1, Math.round(currentMessages.length * 0.1));
     currentMessages = currentMessages.slice(cutoffSize);
