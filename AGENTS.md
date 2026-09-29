@@ -105,7 +105,7 @@ When running in `--mode=cloud`, do not use OAuth2 connections — the OAuth prov
 
 ## Database Migrations
 
-- Before creating or modifying a database migration, **always read the [Database Migrations Playbook](https://www.inboxfm-connect.com/docs/handbook/engineering/playbooks/database-migration#database-migrations)** first. Follow its instructions for generating and structuring migrations.
+- Before creating or modifying a database migration, **always read the [Database Migrations Playbook](docs/handbook/engineering/playbooks/database-migration.mdx)** first. Follow its instructions for generating and structuring migrations.
 
 ## Verification
 
@@ -125,5 +125,5 @@ When running in `--mode=cloud`, do not use OAuth2 connections — the OAuth prov
 
 ## Useful Links
 
-- [Database Migrations Playbook](https://www.inboxfm-connect.com/docs/handbook/engineering/playbooks/database-migration)
+- [Database Migrations Playbook](docs/handbook/engineering/playbooks/database-migration.mdx)
 - [TypeORM Migrations Docs](https://orkhan.gitbook.io/typeorm/docs/migrations)
