@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Stored-history token budget (issue #385)
 //
-// The piece already caps stored history by MESSAGE COUNT (30 here), but a
+// The piece already caps stored history by MESSAGE COUNT (50 here), but a
 // count cap says nothing about payload size: 30 x 4000-token messages blow
 // past every model window and the stored array keeps failing every later
 // run. This guard trims oldest-first until the history also fits the token
