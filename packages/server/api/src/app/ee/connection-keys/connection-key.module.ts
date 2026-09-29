@@ -138,6 +138,20 @@ const connectionKeyController: FastifyPluginAsyncZod = async (fastify) => {
 
     fastify.delete(
         '/:connectionkeyId',
+        {
+            config: {
+                // Issue #413: without a security config the route is treated as
+                // PUBLIC by the authn/authz middlewares, and the id-only delete
+                // below is cross-tenant. Same shape as the module's list route.
+                security: securityAccess.project(
+                    [PrincipalType.USER, PrincipalType.SERVICE],
+                    undefined,
+                    {
+                        type: ProjectResourceType.QUERY,
+                    },
+                ),
+            },
+        },
         async (
             request: FastifyRequest<{
                 Params: {
@@ -146,7 +160,10 @@ const connectionKeyController: FastifyPluginAsyncZod = async (fastify) => {
             }>,
             reply,
         ) => {
-            await connectionKeyService(request.log).delete(request.params.connectionkeyId)
+            await connectionKeyService(request.log).delete({
+                id: request.params.connectionkeyId,
+                projectId: request.projectId,
+            })
             return reply.status(StatusCodes.OK).send()
         },
     )
