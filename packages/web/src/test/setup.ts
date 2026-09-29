@@ -7,45 +7,96 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
   value: true,
 })
 
-class LocalStorageMock implements Storage {
-  private store = new Map<string, string>()
-
-  get length(): number {
-    return this.store.size
+function createStorageMock(): Storage {
+  const store = new Map<string, string>()
+  const target: Storage = {
+    get length(): number {
+      return store.size
+    },
+    clear(): void {
+      store.clear()
+    },
+    getItem(key: string): string | null {
+      return store.get(key) ?? null
+    },
+    key(index: number): string | null {
+      return Array.from(store.keys())[index] ?? null
+    },
+    removeItem(key: string): void {
+      store.delete(key)
+    },
+    setItem(key: string, value: string): void {
+      store.set(key, String(value))
+    },
   }
 
-  clear(): void {
-    this.store.clear()
-  }
-
-  getItem(key: string): string | null {
-    return this.store.get(key) ?? null
-  }
-
-  key(index: number): string | null {
-    return Array.from(this.store.keys())[index] ?? null
-  }
-
-  removeItem(key: string): void {
-    this.store.delete(key)
-  }
-
-  setItem(key: string, value: string): void {
-    this.store.set(key, String(value))
-  }
+  return new Proxy(target, {
+    get(t, prop, receiver) {
+      if (typeof prop === 'string' && prop in t) {
+        return Reflect.get(t, prop, receiver)
+      }
+      if (typeof prop === 'string') {
+        return store.get(prop) ?? undefined
+      }
+      return Reflect.get(t, prop, receiver)
+    },
+    set(t, prop, value, receiver) {
+      if (typeof prop === 'string' && prop in t) {
+        return Reflect.set(t, prop, value, receiver)
+      }
+      if (typeof prop === 'string') {
+        store.set(prop, String(value))
+        return true
+      }
+      return Reflect.set(t, prop, value, receiver)
+    },
+    deleteProperty(t, prop) {
+      if (typeof prop === 'string') {
+        store.delete(prop)
+        return true
+      }
+      return Reflect.deleteProperty(t, prop)
+    },
+    ownKeys() {
+      return Array.from(store.keys())
+    },
+    getOwnPropertyDescriptor(t, prop) {
+      if (typeof prop === 'string' && store.has(prop)) {
+        return {
+          value: store.get(prop),
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        }
+      }
+      return undefined
+    },
+  })
 }
 
-const mockStorage = new LocalStorageMock()
+const mockLocalStorage = createStorageMock()
+const mockSessionStorage = createStorageMock()
+
 Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
   writable: true,
-  value: mockStorage,
+  value: mockLocalStorage,
+})
+Object.defineProperty(globalThis, 'sessionStorage', {
+  configurable: true,
+  writable: true,
+  value: mockSessionStorage,
 })
 if (typeof window !== 'undefined') {
   Object.defineProperty(window, 'localStorage', {
     configurable: true,
     writable: true,
-    value: mockStorage,
+    value: mockLocalStorage,
+  })
+  Object.defineProperty(window, 'sessionStorage', {
+    configurable: true,
+    writable: true,
+    value: mockSessionStorage,
   })
 }
 
