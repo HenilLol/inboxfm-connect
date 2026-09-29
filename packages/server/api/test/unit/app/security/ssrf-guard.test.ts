@@ -18,12 +18,6 @@ const SCAN_ROOTS = [
 
 const ALLOWANCES: RawFetchAllowance[] = [
     {
-        file: 'api/src/app/authentication/authentication-utils.ts',
-        expectedMatches: 1,
-        reason: 'Upstream newsletter subscriber call with a fixed first-party URL',
-        owner: 'Removal tracked in #235, do not extend',
-    },
-    {
         file: 'utils/src/safe-http.ts',
         expectedMatches: 1,
         reason: 'The SSRF wrapper itself constructs the filtered axios instance',
