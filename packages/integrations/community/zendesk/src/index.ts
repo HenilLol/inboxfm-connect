@@ -48,7 +48,7 @@ export const zendeskAuth = PieceAuth.CustomAuth({
       required: true,
     }),
     subdomain: Property.ShortText({
-      displayName: 'Organization (e.g activepieceshelp)',
+      displayName: 'Organization (e.g inboxfm-connecthelp)',
       description: 'The subdomain of your Zendesk instance',
       required: true,
     }),
@@ -61,7 +61,7 @@ export const zendesk = createPiece({
   description: 'Customer service software and support ticket system',
 
   minimumSupportedRelease: '0.30.0',
-  logoUrl: 'https://cdn.activepieces.com/pieces/zendesk.png',
+  logoUrl: 'https://cdn.inboxfm-connect.com/pieces/zendesk.png',
   authors: ["kishanprmr","MoShizzle","khaledmashaly","abuaboud","aryel780","onyedikachi-david","murex971"],
   categories: [PieceCategory.CUSTOMER_SUPPORT],
   auth: zendeskAuth,

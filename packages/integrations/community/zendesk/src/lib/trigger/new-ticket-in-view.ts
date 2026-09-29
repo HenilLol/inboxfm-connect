@@ -61,7 +61,7 @@ export const newTicketInView = createTrigger({
     }),
   },
   sampleData: {
-    url: 'https://activepieceshelp.zendesk.com/api/v2/tickets/5.json',
+    url: 'https://inboxfm-connecthelp.zendesk.com/api/v2/tickets/5.json',
     id: 5,
     external_id: null,
     via: {
