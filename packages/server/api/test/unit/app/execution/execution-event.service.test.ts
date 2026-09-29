@@ -257,3 +257,31 @@ describe('ExecutionEvent Service', () => {
         })
     })
 })
+
+
+describe('memory fallback eviction (issue #392)', () => {
+    it('critical events still land past the cap but never grow the list unbounded', async () => {
+        const executionId = 'exec_critical_cap_test'
+        const criticalType = ExecutionEventType.ExecutionCompleted
+        // fill to the cap with non-critical events
+        for (let i = 0; i < 1005; i++) {
+            await executionEventService.emit({
+                executionId,
+                type: ExecutionEventType.PlannerStarted,
+                payload: { i },
+            })
+        }
+        const before = await executionEventService.readEventHistory({ executionId })
+        expect(before.length).toBeLessThanOrEqual(1005)
+        // critical events must land even when the list is at the cap
+        const critical = await executionEventService.emit({
+            executionId,
+            type: criticalType,
+            payload: { done: true },
+        })
+        const after = await executionEventService.readEventHistory({ executionId })
+        expect(after.some((e) => e.id === critical.id)).toBe(true)
+        // and the list must not have grown: oldest non-critical was dropped
+        expect(after.length).toBeLessThanOrEqual(1006)
+    })
+})
