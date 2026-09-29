@@ -17,29 +17,30 @@ export function extractMustacheTokens(input: string): MustacheToken[] {
             const start = i
             let depth = 1
             i += 2
-            let quoteChar: string | null = null
-            while (i < input.length && depth > 0) {
-                if (quoteChar !== null) {
-                    if (input[i] === '\\') {
+            let inQuote: string | null = null
+            while (i < input.length - 1 && depth > 0) {
+                const char = input[i]
+                if (inQuote !== null) {
+                    if (char === '\\') {
                         i += 2
+                        continue
                     }
-                    else if (input[i] === quoteChar) {
-                        quoteChar = null
-                        i++
+                    if (char === inQuote) {
+                        inQuote = null
                     }
-                    else {
-                        i++
-                    }
-                }
-                else if (input[i] === "'" || input[i] === '"' || input[i] === '`') {
-                    quoteChar = input[i]
                     i++
+                    continue
                 }
-                else if (i < input.length - 1 && input[i] === '{' && input[i + 1] === '{') {
+                if (char === '"' || char === "'" || char === '`') {
+                    inQuote = char
+                    i++
+                    continue
+                }
+                if (input[i] === '{' && input[i + 1] === '{') {
                     depth++
                     i += 2
                 }
-                else if (i < input.length - 1 && input[i] === '}' && input[i + 1] === '}') {
+                else if (input[i] === '}' && input[i + 1] === '}') {
                     depth--
                     i += 2
                 }
@@ -47,7 +48,7 @@ export function extractMustacheTokens(input: string): MustacheToken[] {
                     i++
                 }
             }
-            if (depth === 0) {
+            if (depth === 0 && inQuote === null) {
                 const token = input.slice(start, i)
                 const inner = token.slice(2, -2)
                 results.push({ token, inner, index: start })

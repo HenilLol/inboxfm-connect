@@ -4,7 +4,6 @@ import { FlowAction } from '../actions/action'
 import { FlowVersion } from '../flow-version'
 import { flowStructureUtil } from '../util/flow-structure-util'
 
-
 function mapToNewNames(flowVersion: FlowVersion, clonedActions: FlowAction[]): Record<string, string> {
     const existingNames = flowStructureUtil.getAllSteps(flowVersion.trigger)
         .map(step => step.name)
@@ -18,10 +17,8 @@ function mapToNewNames(flowVersion: FlowVersion, clonedActions: FlowAction[]): R
     }, {} as Record<string, string>)
 }
 
-type ReplaceOldStepNameWithNewOneProps = {
-    input: string
-    oldStepName: string
-    newStepName: string
+function escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 /**
@@ -36,7 +33,7 @@ function replaceOldStepNameWithNewOne({
     if (tokens.length === 0) {
         return input
     }
-    const escapedOldName = oldStepName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const escapedOldName = escapeRegex(oldStepName)
     const stepRegex = new RegExp(`\\b${escapedOldName}\\b`, 'g')
 
     let result = ''
@@ -52,7 +49,6 @@ function replaceOldStepNameWithNewOne({
     result += input.slice(lastIndex)
     return result
 }
-
 
 function clone(step: FlowAction, oldNameToNewName: Record<string, string>): FlowAction {
     step.displayName = `${step.displayName} Copy`
@@ -89,4 +85,10 @@ export const addActionUtils = {
     mapToNewNames,
     clone,
     replaceOldStepNameWithNewOne,
+}
+
+type ReplaceOldStepNameWithNewOneProps = {
+    input: string
+    oldStepName: string
+    newStepName: string
 }

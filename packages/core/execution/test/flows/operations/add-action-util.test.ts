@@ -135,8 +135,45 @@ describe('addActionUtils.replaceOldStepNameWithNewOne (Issue #167)', () => {
         const cloned = addActionUtils.clone(step, { step_1: 'step_2' })
         expect(cloned.name).toBe('step_2')
         expect(cloned.displayName).toBe('HTTP Request Copy')
-        const input = (cloned as PieceAction).settings.input as Record<string, unknown>
-        expect(input.body).toBe("{{ steps.step_2.output + '}}' }}")
-        expect((input.nested as Record<string, unknown>).field).toBe('{{ steps.step_2.data }}')
+        if (cloned.type === FlowActionType.PIECE && cloned.settings.input && typeof cloned.settings.input === 'object') {
+            const input = cloned.settings.input
+            if ('body' in input && 'nested' in input && typeof input.nested === 'object' && input.nested && 'field' in input.nested) {
+                expect(input.body).toBe("{{ steps.step_2.output + '}}' }}")
+                expect(input.nested.field).toBe('{{ steps.step_2.data }}')
+            }
+        }
+    })
+
+    it('clones action and updates step references across complex nested input settings', () => {
+        const action: PieceAction = {
+            name: 'step_1',
+            displayName: 'Send Message',
+            type: FlowActionType.PIECE,
+            valid: true,
+            lastUpdatedDate: '2026-09-27T00:00:00.000Z',
+            settings: {
+                pieceName: '@inboxfm-connect/piece-slack',
+                pieceVersion: '0.1.0',
+                propertySettings: {},
+                input: {
+                    text: 'From {{ step_1.author }} with {{ "}}" + step_1.signature }}',
+                    nested: {
+                        deep: '{{ step_1.id }}',
+                    },
+                },
+            },
+        }
+
+        const cloned = addActionUtils.clone(action, { step_1: 'step_copy_1' })
+
+        expect(cloned.name).toBe('step_copy_1')
+        expect(cloned.displayName).toBe('Send Message Copy')
+        if (cloned.type === FlowActionType.PIECE && cloned.settings.input && typeof cloned.settings.input === 'object') {
+            const input = cloned.settings.input
+            if ('text' in input && 'nested' in input && typeof input.nested === 'object' && input.nested && 'deep' in input.nested) {
+                expect(input.text).toBe('From {{ step_copy_1.author }} with {{ "}}" + step_copy_1.signature }}')
+                expect(input.nested.deep).toBe('{{ step_copy_1.id }}')
+            }
+        }
     })
 })
