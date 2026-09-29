@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { Nullable } from '@inboxfm-connect/core-utils'
+import { formErrors, Nullable } from '@inboxfm-connect/core-utils'
 import { Metadata } from '@inboxfm-connect/core-utils'
-import { BranchCondition, CodeActionSchema, CodeActionSettings, FlowActionType, LoopOnItemsActionSchema, LoopOnItemsActionSettings, PieceActionSchema, PieceActionSettings, RouterActionSchema, RouterActionSettings } from '../actions/action'
+import { BranchExecutionType, CodeActionSchema, CodeActionSettings, FlowActionType, LoopOnItemsActionSchema, LoopOnItemsActionSettings, PieceActionSchema, PieceActionSettings, RouterActionSchema, RouterActionSettings, ValidBranchCondition } from '../actions/action'
 import { FlowStatus } from '../flow'
 import { FlowVersion, FlowVersionState } from '../flow-version'
 import { Note } from '../note'
@@ -68,7 +68,7 @@ export const AddNoteRequest = Note.omit({ createdAt: true, updatedAt: true, owne
 export const AddBranchRequest = z.object({
     branchIndex: z.number(),
     stepName: z.string(),
-    conditions: z.array(z.array(BranchCondition)).optional(),
+    conditions: z.array(z.array(ValidBranchCondition)).optional(),
     branchName: z.string(),
 })
 export const MoveBranchRequest = z.object({
@@ -120,11 +120,41 @@ export const LockFlowRequest = z.object({})
 
 export type LockFlowRequest = z.infer<typeof LockFlowRequest>
 
+function rejectEmptyImportBranchConditions({ trigger, ctx }: {
+    trigger: FlowTrigger
+    ctx: z.RefinementCtx
+}): void {
+    const steps = flowStructureUtil.getAllSteps(trigger)
+    steps.forEach((step) => {
+        if (step.type !== FlowActionType.ROUTER) {
+            return
+        }
+        step.settings.branches.forEach((branch, branchIndex) => {
+            if (branch.branchType !== BranchExecutionType.CONDITION) {
+                return
+            }
+            branch.conditions.forEach((conditionGroup, groupIndex) => {
+                conditionGroup.forEach((condition, conditionIndex) => {
+                    if (!ValidBranchCondition.safeParse(condition).success) {
+                        ctx.addIssue({
+                            code: z.ZodIssueCode.custom,
+                            message: formErrors.required,
+                            path: ['trigger', step.name, branchIndex, groupIndex, conditionIndex],
+                        })
+                    }
+                })
+            })
+        })
+    })
+}
+
 export const ImportFlowRequest = z.object({
     displayName: z.string(),
     trigger: FlowTrigger,
     schemaVersion: Nullable(z.string()),
     notes: Nullable(z.array(Note)),
+}).superRefine((request, ctx) => {
+    rejectEmptyImportBranchConditions({ trigger: request.trigger, ctx })
 })
 
 export type ImportFlowRequest = z.infer<typeof ImportFlowRequest>
