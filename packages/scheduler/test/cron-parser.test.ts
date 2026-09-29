@@ -203,9 +203,16 @@ describe('validateCronExpression fireability (issue #389)', () => {
         expect(cronParser.validateCronExpression('0 0 29 2 *')).toBe(true) // leap-day, fires on leap years
         expect(cronParser.validateCronExpression('0 0 31 1,3 *')).toBe(true) // Jan/Mar 31
         expect(cronParser.validateCronExpression('0 0 30 2,4 *')).toBe(true) // 30th — April has one
+        expect(cronParser.validateCronExpression('0 0 30 4 *')).toBe(true) // April's last day (parity with #391)
         expect(cronParser.validateCronExpression('0 0 31 * *')).toBe(true) // wildcard month
         expect(cronParser.validateCronExpression('0 0 * 2 *')).toBe(true) // wildcard dom
         expect(cronParser.validateCronExpression('*/5 * * * *')).toBe(true)
+    })
+
+    it('handles month-name fields in the fireability probe', () => {
+        // parity with #391: names resolve before the probe runs
+        expect(cronParser.validateCronExpression('0 0 31 FEB *')).toBe(false) // 31 Feb, by name
+        expect(cronParser.validateCronExpression('0 0 30 APR *')).toBe(true) // 30 Apr, by name
     })
 
     it('answers the unfireable case without the multi-second clock scan', () => {
