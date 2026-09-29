@@ -1,5 +1,5 @@
 import { ActivepiecesError, AIProviderName, apId, ErrorCode, isNil, PlatformId, spreadIfDefined } from '@inboxfm-connect/core-utils'
-import { ActivePiecesProviderAuthConfig, AIProviderAuthConfig, AIProviderConfig, AIProviderModel, AIProviderWithoutSensitiveData, BaseAIProviderAuthConfig, BedrockProviderAuthConfig, BedrockProviderConfig, CreateAIProviderRequest, GetProviderConfigResponse, UpdateAIProviderRequest } from '@inboxfm-connect/shared'
+import { ActivePiecesProviderAuthConfig, AIProviderAuthConfig, AIProviderConfig, AIProviderModel, AIProviderWithoutSensitiveData, AzureProviderConfig, BaseAIProviderAuthConfig, BedrockProviderAuthConfig, BedrockProviderConfig, CreateAIProviderRequest, GetProviderConfigResponse, UpdateAIProviderRequest } from '@inboxfm-connect/shared'
 import { FastifyBaseLogger } from 'fastify'
 import cron from 'node-cron'
 import { repoFactory } from '../core/db/repo-factory'
@@ -72,6 +72,18 @@ export const aiProviderService = (log: FastifyBaseLogger) => ({
         }
 
         const data = await aiProviders[provider].listModels(auth, config)
+
+        // CodeAnt finding on #403 (race): a concurrent request that started on an
+        // older credential can finish after the rotation cleanup above ran and
+        // re-insert its retired-fingerprint entry. Re-run the supersession sweep
+        // after the await so the surviving entry set is exactly the current
+        // credential generation - the last writer wins instead of accumulating
+        // generations.
+        for (const key of modelsCache.keys()) {
+            if (key.startsWith(`${provider}-`) && key !== cacheKey) {
+                modelsCache.delete(key)
+            }
+        }
 
         modelsCache.set(cacheKey, data.map(model => ({
             id: model.id,
@@ -230,6 +242,15 @@ export function getAuthCacheFingerprint({ provider, auth, config }: { provider: 
             const { accessKeyId, secretAccessKey } = auth as BedrockProviderAuthConfig
             const { region } = config as BedrockProviderConfig
             return cryptoUtils.hashSHA256(`${provider}:${accessKeyId}:${secretAccessKey}:${region ?? ''}`)
+        }
+        case AIProviderName.AZURE: {
+            // CodeAnt finding on #403: Azure deployments are addressed by resource
+            // name + api version, not by the key alone. Two providers on the same
+            // key against different resources (or api versions) must not share a
+            // cache entry - the models come from different deployment sources.
+            const { apiKey } = auth as BaseAIProviderAuthConfig
+            const { resourceName, apiVersion } = config as AzureProviderConfig
+            return cryptoUtils.hashSHA256(`${provider}:${apiKey ?? ''}:${resourceName ?? ''}:${apiVersion ?? ''}`)
         }
         default: {
             const { apiKey } = auth as BaseAIProviderAuthConfig

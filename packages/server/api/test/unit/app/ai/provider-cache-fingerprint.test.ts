@@ -41,6 +41,27 @@ describe('getAuthCacheFingerprint (issue #402)', () => {
         expect(before).not.toBe(after)
     })
 
+    it('separates azure deployments on the same key by resource name and api version (codeant #403)', () => {
+        const resourceA = getAuthCacheFingerprint({
+            provider: AIProviderName.AZURE,
+            auth: { apiKey: 'shared-azure-key' } as never,
+            config: { resourceName: 'res-a', apiVersion: '2024-10-21' } as never,
+        })
+        const resourceB = getAuthCacheFingerprint({
+            provider: AIProviderName.AZURE,
+            auth: { apiKey: 'shared-azure-key' } as never,
+            config: { resourceName: 'res-b', apiVersion: '2024-10-21' } as never,
+        })
+        const versioned = getAuthCacheFingerprint({
+            provider: AIProviderName.AZURE,
+            auth: { apiKey: 'shared-azure-key' } as never,
+            config: { resourceName: 'res-a', apiVersion: '2025-01-01' } as never,
+        })
+        expect(resourceA).not.toBe(resourceB)
+        expect(resourceA).not.toBe(versioned)
+        expect(resourceA).not.toContain('shared-azure-key')
+    })
+
     it('includes bedrock region and credentials in the hash without leaking them', () => {
         const key = getAuthCacheFingerprint({
             provider: AIProviderName.BEDROCK,
