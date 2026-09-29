@@ -18,6 +18,7 @@ export type McpOAuthClient = z.infer<typeof McpOAuthClient>
 export const McpOAuthToken = z.object({
     ...BaseModelSchema,
     refreshToken: z.string(),
+    previousRefreshToken: z.string().nullable().optional(),
     clientId: z.string(),
     userId: z.string(),
     projectId: z.string().nullable(),

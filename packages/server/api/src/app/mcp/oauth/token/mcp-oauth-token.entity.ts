@@ -11,6 +11,11 @@ export const McpOAuthTokenEntity = new EntitySchema<McpOAuthToken>({
             length: 128,
             nullable: false,
         },
+        previousRefreshToken: {
+            type: String,
+            length: 128,
+            nullable: true,
+        },
         clientId: {
             type: String,
             length: 64,
@@ -42,6 +47,11 @@ export const McpOAuthTokenEntity = new EntitySchema<McpOAuthToken>({
             name: 'idx_mcp_oauth_token_refresh',
             columns: ['refreshToken'],
             unique: true,
+        },
+        {
+            name: 'idx_mcp_oauth_token_previous_refresh',
+            columns: ['previousRefreshToken'],
+            unique: false,
         },
     ],
 })

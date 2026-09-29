@@ -92,7 +92,11 @@ export const mcpOAuthTokenService = {
         const now = new Date().toISOString()
         const claim = await repo().createQueryBuilder()
             .update()
-            .set({ refreshToken: hashRefreshToken(rawNewRefreshToken), updated: now })
+            .set({
+                refreshToken: hashRefreshToken(rawNewRefreshToken),
+                previousRefreshToken: hashed,
+                updated: now,
+            })
             .where('"refreshToken" = :hashed AND "revoked" = false AND "expiresAt" > :now', { hashed, now })
             .returning('*')
             .execute()
@@ -100,11 +104,12 @@ export const mcpOAuthTokenService = {
         const claimedRows = claim.raw as McpOAuthToken[]
         const record = Array.isArray(claimedRows) && claimedRows.length > 0 ? claimedRows[0] : null
         if (isNil(record)) {
-            // Either unknown/revoked/expired, or lost a race to a concurrent refresh
-            // with the same token - indistinguishable by design (RFC 6749 s5.2).
-            // Reuse of a rotated token lands here too, which limits an attacker's
-            // window to a single refresh cycle; log a hash of the presented token so
-            // operators can correlate replay attempts without logging the secret.
+            const staleRecord = await repo().findOneBy({ previousRefreshToken: hashed })
+            if (staleRecord) {
+                await repo().update({ id: staleRecord.id }, { revoked: true })
+                params.log?.warn({ clientId: params.clientId, tokenHash: hashed }, '[mcpOAuth] Refresh token reuse detected — token family revoked')
+                throw new OAuthTokenError('invalid_grant', 'Refresh token reuse detected: token family revoked')
+            }
             params.log?.warn({ clientId: params.clientId, tokenHash: hashed }, '[mcpOAuth] Refresh token rejected: unknown, revoked, expired, or lost a concurrent race')
             throw new OAuthTokenError('invalid_grant', 'Invalid or expired refresh token')
         }
@@ -155,6 +160,11 @@ export const mcpOAuthTokenService = {
             ? { refreshToken: hashed, clientId }
             : { refreshToken: hashed }
         await repo().update(criteria, { revoked: true })
+
+        const prevCriteria = clientId
+            ? { previousRefreshToken: hashed, clientId }
+            : { previousRefreshToken: hashed }
+        await repo().update(prevCriteria, { revoked: true })
     },
 
     async issueInternalAccessToken({ userId, platformId, projectId }: { userId: string, platformId: string, projectId: string | null }): Promise<string> {
