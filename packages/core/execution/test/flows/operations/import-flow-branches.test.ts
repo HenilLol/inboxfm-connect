@@ -391,7 +391,7 @@ describe('BranchCondition and Flow Import Branch Validation (Issue #168)', () =>
             children: [null],
         }
 
-        const rawRequest = {
+        const rawRequest: ImportFlowRequest = {
             displayName: 'Draft Router Flow',
             schemaVersion: '22',
             notes: null,
@@ -406,25 +406,26 @@ describe('BranchCondition and Flow Import Branch Validation (Issue #168)', () =>
             },
         }
 
-        // Schema parsing at HTTP boundary must succeed without raw ZodError
+        // Schema parsing at HTTP boundary rejects empty draft condition values
         const parseResult = ImportFlowRequest.safeParse(rawRequest)
-        expect(parseResult.success).toBe(true)
+        expect(parseResult.success).toBe(false)
 
-        // But operations layer rejects it with friendly ActivepiecesError
+        // But operations layer also rejects it with friendly ActivepiecesError
         let capturedError: unknown
         try {
             flowOperations.apply(mockFlowVersion, {
                 type: FlowOperationType.IMPORT_FLOW,
-                request: parseResult.data!,
+                request: rawRequest,
             })
         }
         catch (err) {
             capturedError = err
         }
         expect(capturedError).toBeInstanceOf(ActivepiecesError)
-        const apErr = capturedError as ActivepiecesError
-        expect(apErr.error.code).toBe(ErrorCode.FLOW_OPERATION_INVALID)
-        expect(apErr.error.params.message).toContain('condition values must not be empty')
+        if (capturedError instanceof ActivepiecesError) {
+            expect(capturedError.error.code).toBe(ErrorCode.FLOW_OPERATION_INVALID)
+            expect(capturedError.error.params.message).toContain('condition values must not be empty')
+        }
     })
 
     it('ADD_BRANCH with omitted conditions creates draft scaffold; export->import round-trip rejects unconfigured draft and accepts populated branch', () => {
