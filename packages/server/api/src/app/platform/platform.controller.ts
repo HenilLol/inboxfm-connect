@@ -51,24 +51,28 @@ export const platformController: FastifyPluginAsyncZod = async (app) => {
             })
         }
         const platformId = req.principal.platform.id
+        const fileSizeLimit = system.getNumberOrThrow(AppSystemProp.MAX_FILE_SIZE_MB)
 
         const [logoIconUrl, fullLogoUrl, favIconUrl] = await Promise.all([
             fileService(app.log).uploadPublicAsset({
                 file: req.body.logoIcon,
                 type: FileType.PLATFORM_ASSET,
                 platformId,
+                maxFileSizeInBytes: fileSizeLimit * 1024 * 1024,
                 metadata: { platformId },
             }),
             fileService(app.log).uploadPublicAsset({
                 file: req.body.fullLogo,
                 type: FileType.PLATFORM_ASSET,
                 platformId,
+                maxFileSizeInBytes: fileSizeLimit * 1024 * 1024,
                 metadata: { platformId },
             }),
             fileService(app.log).uploadPublicAsset({
                 file: req.body.favIcon,
                 type: FileType.PLATFORM_ASSET,
                 platformId,
+                maxFileSizeInBytes: fileSizeLimit * 1024 * 1024,
                 metadata: { platformId },
             }),
         ])
