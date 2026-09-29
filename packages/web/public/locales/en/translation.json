@@ -2431,6 +2431,7 @@
   "Highlights": "Highlights",
   "External ID can only contain letters, numbers and underscores": "External ID can only contain letters, numbers and underscores",
   "required": "Required",
+  "invalidBranchCondition": "Branch condition is invalid",
   "invalidExternalId": "External ID may only contain letters, numbers, dot, dash and underscore (up to 128 characters)",
   "apiKeyExpiryMustBeFuture": "Expiration date must be in the future",
   "Please connect your account first": "Please connect your account first",

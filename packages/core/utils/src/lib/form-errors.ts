@@ -5,6 +5,7 @@ export const formErrors = {
     invalidGitRepoRemoteUrl: 'invalidGitRepoRemoteUrl',
     invalidExternalId: 'invalidExternalId',
     invalidFileName: 'invalidFileName',
+    invalidBranchCondition: 'invalidBranchCondition',
     messageRequiresContentOrFiles: 'messageRequiresContentOrFiles',
     apiKeyExpiryMustBeFuture: 'apiKeyExpiryMustBeFuture',
     activeFlowsLimitMin: 'activeFlowsLimitMin',
