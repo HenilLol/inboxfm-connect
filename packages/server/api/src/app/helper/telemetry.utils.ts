@@ -8,7 +8,19 @@ import { projectService } from '../project/project-service'
 import { system } from './system/system'
 import { AppSystemProp } from './system/system-props'
 
-const telemetryEnabled = system.getBoolean(AppSystemProp.TELEMETRY_ENABLED)
+// Issue #406: the enabled-flag used to be captured once at module load, so runtime
+// flag changes (platform-level telemetry management, tests, hot config reloads)
+// never took effect until a restart. It is now read per call.
+// Identity PII (email/firstName/lastName) to PostHog is separately opt-in via
+// TELEMETRY_INCLUDE_PII: without it, usage telemetry still flows but identity
+// fields are stripped.
+function isTelemetryEnabled(): boolean {
+    return system.getBoolean(AppSystemProp.TELEMETRY_ENABLED) ?? true
+}
+
+function includeTelemetryPii(): boolean {
+    return system.getBoolean(AppSystemProp.TELEMETRY_INCLUDE_PII) ?? false
+}
 
 let posthogInstance: PostHog | null = null
 function getPostHog(): PostHog {
@@ -22,15 +34,20 @@ function getPostHog(): PostHog {
 
 export const telemetry = (log: FastifyBaseLogger) => ({
     async identify(identity: UserIdentity, user?: User, projectId?: ProjectId): Promise<void> {
-        if (!telemetryEnabled) {
+        if (!isTelemetryEnabled()) {
             return
         }
+        // Issue #406: identity PII only leaves the instance when explicitly opted in
+        // via TELEMETRY_INCLUDE_PII; by default the event carries ids and metadata only.
+        const pii = includeTelemetryPii()
         getPostHog().identify({
             distinctId: user?.id ?? identity.id,
             properties: {
-                email: identity.email,
-                firstName: identity.firstName,
-                lastName: identity.lastName,
+                ...(pii ? {
+                    email: identity.email,
+                    firstName: identity.firstName,
+                    lastName: identity.lastName,
+                } : {}),
                 projectId,
                 firstSeenAt: user?.created ?? identity.created,
                 ...(await getMetadata()),
@@ -38,7 +55,7 @@ export const telemetry = (log: FastifyBaseLogger) => ({
         })
     },
     async trackPlatform(platformId: ProjectId, event: TelemetryEvent): Promise<void> {
-        if (!telemetryEnabled) {
+        if (!isTelemetryEnabled()) {
             return
         }
         const platform = await platformService(log).getOneOrThrow(platformId)
@@ -48,15 +65,15 @@ export const telemetry = (log: FastifyBaseLogger) => ({
         projectId: ProjectId,
         event: TelemetryEvent,
     ): Promise<void> {
-        if (!telemetryEnabled) {
+        if (!isTelemetryEnabled()) {
             return
         }
         const project = await projectService(log).getOne(projectId)
         return this.trackUser(project!.ownerId, event, { platform: project!.platformId })
     },
-    isEnabled: () => telemetryEnabled,
+    isEnabled: () => isTelemetryEnabled(),
     async trackUser(userId: UserId, event: TelemetryEvent, groups?: Record<string, string>): Promise<void> {
-        if (!telemetryEnabled) {
+        if (!isTelemetryEnabled()) {
             return
         }
         const payloadEvent = {
@@ -69,7 +86,10 @@ export const telemetry = (log: FastifyBaseLogger) => ({
             },
             groups,
         }
-        log.info(payloadEvent, '[Telemetry#trackUser] sending event')
+        // Issue #406: the payload no longer enters the app log - PostHog is the
+        // delivery channel, not the log pipeline; logs carry a different retention
+        // policy than consented telemetry.
+        log.debug({ event: event.name, distinctId: userId }, '[Telemetry#trackUser] sending event')
         getPostHog().capture(payloadEvent)
     },
 })

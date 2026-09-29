@@ -163,6 +163,7 @@ const systemPropValidators: {
     [AppSystemProp.SMTP_SENDER_NAME]: stringValidator,
     [AppSystemProp.SMTP_USERNAME]: stringValidator,
     [AppSystemProp.TELEMETRY_ENABLED]: booleanValidator,
+    [AppSystemProp.TELEMETRY_INCLUDE_PII]: booleanValidator,
     [AppSystemProp.TOOL_SEARCH_ENABLED]: booleanValidator,
     [AppSystemProp.TRIGGER_DEFAULT_POLL_INTERVAL]: numberValidator,
     [AppSystemProp.WEBHOOK_TIMEOUT_SECONDS]: numberValidator,
