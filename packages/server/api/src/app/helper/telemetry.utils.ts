@@ -32,6 +32,20 @@ function getPostHog(): PostHog {
     return posthogInstance
 }
 
+// Identity fields that identify() already gates behind TELEMETRY_INCLUDE_PII.
+// Mirrored here so event payloads carry them only on explicit opt-in too.
+const IDENTITY_PII_KEYS = new Set(['email', 'firstName', 'lastName'])
+
+function stripIdentityPii(payload: Record<string, unknown>): Record<string, unknown> {
+    const safe: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(payload)) {
+        if (!IDENTITY_PII_KEYS.has(key)) {
+            safe[key] = value
+        }
+    }
+    return safe
+}
+
 export const telemetry = (log: FastifyBaseLogger) => ({
     async identify(identity: UserIdentity, user?: User, projectId?: ProjectId): Promise<void> {
         if (!isTelemetryEnabled()) {
@@ -76,11 +90,19 @@ export const telemetry = (log: FastifyBaseLogger) => ({
         if (!isTelemetryEnabled()) {
             return
         }
+        // Issue #406 (CodeAnt follow-up): the PII gate used to apply only to
+        // identify(), so events like SIGNED_UP forwarded email/firstName/
+        // lastName inside event.payload even with the flag off. The same
+        // allow-list gate now strips identity PII from every event payload
+        // at this single choke point, so future call sites cannot leak it
+        // by accident either.
+        const pii = includeTelemetryPii()
+        const safePayload = pii ? event.payload : stripIdentityPii(event.payload)
         const payloadEvent = {
             distinctId: userId,
             event: event.name,
             properties: {
-                ...event.payload,
+                ...safePayload,
                 ...(await getMetadata()),
                 datetime: new Date().toISOString(),
             },

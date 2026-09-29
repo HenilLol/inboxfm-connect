@@ -78,3 +78,33 @@ describe('telemetry PII gating (issue #406)', () => {
         expect(posthogCapture).toHaveBeenCalled()
     })
 })
+
+describe('event-payload PII gating (codeant on #407)', () => {
+    it('strips email/firstName/lastName from trackUser event payloads unless opted in', async () => {
+        posthogCapture.mockClear()
+        await telemetry(log).trackUser('user-1', {
+            name: 'signed_up',
+            payload: { userId: 'user-1', email: 'victim@example.com', firstName: 'Victim', lastName: 'User', projectId: 'project-1' },
+        } as never)
+        expect(posthogCapture).toHaveBeenCalled()
+        const props = posthogCapture.mock.calls[0]![0]!.properties
+        expect(props['email']).toBeUndefined()
+        expect(props['firstName']).toBeUndefined()
+        expect(props['lastName']).toBeUndefined()
+        expect(props['userId']).toBe('user-1')
+        expect(props['projectId']).toBe('project-1')
+    })
+
+    it('forwards identity PII in the payload when TELEMETRY_INCLUDE_PII is on', async () => {
+        piiOptIn.value = true
+        posthogCapture.mockClear()
+        await telemetry(log).trackUser('user-1', {
+            name: 'signed_up',
+            payload: { email: 'victim@example.com', firstName: 'Victim' },
+        } as never)
+        const props = posthogCapture.mock.calls[0]![0]!.properties
+        expect(props['email']).toBe('victim@example.com')
+        expect(props['firstName']).toBe('Victim')
+        piiOptIn.value = false
+    })
+})
