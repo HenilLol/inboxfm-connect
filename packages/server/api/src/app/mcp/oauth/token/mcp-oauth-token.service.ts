@@ -108,15 +108,27 @@ export const mcpOAuthTokenService = {
             // whole family revoked — N generations deep (RFC 6819 s5.2.2.3). Without
             // this check a replay was rejected but indistinguishable from an unknown
             // token, and the family kept authenticating.
-            const replayed = await repo().findOneBy({ previousRefreshToken: hashed })
-            if (!isNil(replayed)) {
-                await repo().update({ familyId: replayed.familyId }, { revoked: true, updated: now })
-                params.log?.warn({ clientId: params.clientId, tokenHash: hashed, familyId: replayed.familyId }, '[mcpOAuth] Refresh token replay detected - revoking the entire token family')
+            //
+            // Two deterministic replay signals, race-free (codeant findings on #350):
+            //   a. a successor row already points back at this hash (rotation completed)
+            //   b. this hash exists but its row is revoked (rotation committed — the
+            //      successor may not be saved yet if we lost a concurrent refresh race,
+            //      but the presented token being already-revoked proves replay)
+            // Signal (b) closes the race gap: a concurrent loser previously classified
+            // the replay as an ordinary rejection when the winner had revoked the row
+            // but not yet inserted the successor, leaving the family usable.
+            const [replayed, revokedOriginal] = await Promise.all([
+                repo().findOneBy({ previousRefreshToken: hashed }),
+                repo().findOneBy({ refreshToken: hashed, revoked: true }),
+            ])
+            if (!isNil(replayed) || !isNil(revokedOriginal)) {
+                const familyId = replayed?.familyId ?? revokedOriginal?.familyId
+                await repo().update({ familyId }, { revoked: true, updated: now })
+                params.log?.warn({ clientId: params.clientId, tokenHash: hashed, familyId }, '[mcpOAuth] Refresh token replay detected - revoking the entire token family')
                 throw new OAuthTokenError('invalid_grant', 'Invalid or expired refresh token')
             }
-            // Either unknown/revoked/expired, or lost a race to a concurrent refresh
-            // with the same token - indistinguishable by design (RFC 6749 s5.2).
-            params.log?.warn({ clientId: params.clientId, tokenHash: hashed }, '[mcpOAuth] Refresh token rejected: unknown, revoked, expired, or lost a concurrent race')
+            // Either unknown/expired, or the row is simply absent — genuine rejection.
+            params.log?.warn({ clientId: params.clientId, tokenHash: hashed }, '[mcpOAuth] Refresh token rejected: unknown or expired')
             throw new OAuthTokenError('invalid_grant', 'Invalid or expired refresh token')
         }
         if (record.clientId !== params.clientId) {
@@ -147,7 +159,23 @@ export const mcpOAuthTokenService = {
             created: now,
             updated: now,
         }
-        await repo().save(successor)
+        try {
+            await repo().save(successor)
+        }
+        catch (err) {
+            // Successor persist failed after the claim committed (codeant finding on
+            // #350): the old token would stay revoked with no replacement, forcing
+            // re-auth even though the request never completed. Best-effort restore:
+            // un-revoke the claimed row so a retry can claim it again. If the restore
+            // also fails we stay fail-closed (revoked, no successor) — the safe side.
+            try {
+                await repo().update({ id: record.id }, { revoked: false, updated: now })
+            }
+            catch (restoreErr) {
+                params.log?.error({ err: restoreErr, tokenId: record.id }, '[mcpOAuth] Failed to restore revoked token after successor save failure - staying fail-closed')
+            }
+            throw err
+        }
 
         // If signing below throws, the token is already consumed with no replacement
         // delivered - fail-closed, so the client must re-auth. Acceptable trade-off:
