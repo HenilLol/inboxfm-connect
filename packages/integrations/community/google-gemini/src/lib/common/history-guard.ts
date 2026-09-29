@@ -10,17 +10,30 @@
 // entries first until the stored history fits the budget.
 export const HISTORY_TOKEN_BUDGET = 32000;
 
-export const estimateTokens = (message: { content?: unknown }): number => {
-  const text =
-    typeof message?.content === 'string'
-      ? message.content
-      : JSON.stringify(message?.content ?? '');
+// Gemini's `chat.getHistory()` returns `Content[]` — `{ role, parts: [{ text }] }`
+// — with no `content` field (review of #382). Resolve the text from `parts`
+// first; `{ role, content }`-shaped entries (the shape this file is tested with
+// alongside the Gemini shape) still work through the second branch.
+export const estimateTokens = (message: {
+  content?: unknown;
+  parts?: Array<{ text?: unknown }>;
+}): number => {
+  let text: string;
+  if (Array.isArray(message?.parts)) {
+    text = message.parts
+      .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+      .join('');
+  } else if (typeof message?.content === 'string') {
+    text = message.content;
+  } else {
+    text = JSON.stringify(message?.content ?? '');
+  }
   return Math.max(1, Math.round(text.length / 4));
 };
 
 export const estimateHistoryTokens = (messages: unknown[]): number =>
   messages.reduce<number>(
-    (total: number, message: unknown) => total + estimateTokens(message as { content?: unknown }),
+    (total: number, message: unknown) => total + estimateTokens(message as { content?: unknown; parts?: Array<{ text?: unknown }> }),
     0
   );
 

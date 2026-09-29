@@ -6,7 +6,20 @@ import {
   trimHistoryToBudget,
 } from '../src/lib/common/history-guard';
 
-function buildMessages(count: number, charsPerMessage: number) {
+// Gemini's chat.getHistory() returns Content[]: { role, parts: [{ text }] }.
+// The fixtures use the REAL production shape so the suite exercises the path
+// the guard actually runs on (review of #382) — plus one mixed-shape case to
+// pin the { role, content } fallback branch.
+type GeminiContent = { role: string; parts: Array<{ text: string }> };
+
+function buildMessages(count: number, charsPerMessage: number): GeminiContent[] {
+  return Array.from({ length: count }, (_, index) => ({
+    role: index % 2 === 0 ? 'user' : 'model',
+    parts: [{ text: `${index}-`.padEnd(charsPerMessage, 'x') }],
+  }));
+}
+
+function buildPlainMessages(count: number, charsPerMessage: number) {
   return Array.from({ length: count }, (_, index) => ({
     role: index % 2 === 0 ? 'user' : 'assistant',
     content: `${index}-`.padEnd(charsPerMessage, 'x'),
@@ -14,14 +27,24 @@ function buildMessages(count: number, charsPerMessage: number) {
 }
 
 describe('estimateTokens (issue #381)', () => {
-  it('uses the ~4 chars/token approximation on string content', () => {
+  it('estimates a real Gemini Content entry from its parts[] text (review #382)', () => {
+    expect(estimateTokens({ role: 'user', parts: [{ text: 'x'.repeat(400) }] })).toBe(100);
+    // multi-part entries concatenate their text
+    expect(
+      estimateTokens({ role: 'model', parts: [{ text: 'x'.repeat(200) }, { text: 'y'.repeat(200) }] })
+    ).toBe(100);
+  });
+
+  it('still estimates { role, content }-shaped entries through the fallback branch', () => {
     expect(estimateTokens({ content: 'x'.repeat(400) })).toBe(100);
   });
 
-  it('falls back to JSON.stringify for non-string content and never returns 0/NaN', () => {
-    const tokens = estimateTokens({ content: [{ text: 'y'.repeat(40) }] });
+  it('handles inline-data (non-text) parts and never returns 0/NaN', () => {
+    // A Content whose parts carry no text at all still scores >= 1 token so
+    // the trim loop can always make progress.
+    const tokens = estimateTokens({ role: 'user', parts: [{ inlineData: {} }] });
     expect(Number.isFinite(tokens)).toBe(true);
-    expect(tokens).toBeGreaterThan(0);
+    expect(tokens).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -47,6 +70,13 @@ describe('trimHistoryToBudget (issue #381)', () => {
     const messages = buildMessages(3, 100000);
     const result = trimHistoryToBudget(messages, 10);
     expect(result.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('trims { role, content }-shaped histories through the same guard', () => {
+    const messages = buildPlainMessages(200, 400); // ~20,000 tokens
+    const result = trimHistoryToBudget(messages, 3000);
+    expect(result.length).toBeLessThan(messages.length);
+    expect(estimateHistoryTokens(result)).toBeLessThanOrEqual(3000);
   });
 
   it('defaults to the documented 32k system budget', () => {

@@ -1,6 +1,4 @@
 
-import { createAction, Property, StoreScope } from '@inboxfm-connect/pieces-framework';
-
 // ---------------------------------------------------------------------------
 // Stored-history context guard (issue #381)
 //
