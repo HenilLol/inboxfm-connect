@@ -21,6 +21,12 @@ export class AddMcpOAuthTokenLineage1790154000000 implements Migration {
         await queryRunner.query(`
             UPDATE "mcp_oauth_token" SET "familyId" = "id" WHERE "familyId" = 'legacy'
         `)
+        // The DEFAULT 'legacy' only exists so pre-lineage rows can be backfilled in one
+        // statement; the entity declares no default, so drop it to keep the generated
+        // schema in sync (CI drift check fails otherwise).
+        await queryRunner.query(`
+            ALTER TABLE "mcp_oauth_token" ALTER COLUMN "familyId" DROP DEFAULT
+        `)
         await queryRunner.query(`
             CREATE INDEX "idx_mcp_oauth_token_previous_refresh" ON "mcp_oauth_token" ("previousRefreshToken")
         `)
@@ -32,6 +38,7 @@ export class AddMcpOAuthTokenLineage1790154000000 implements Migration {
     public async down(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query('DROP INDEX "idx_mcp_oauth_token_family"')
         await queryRunner.query('DROP INDEX "idx_mcp_oauth_token_previous_refresh"')
+        await queryRunner.query(`ALTER TABLE "mcp_oauth_token" ALTER COLUMN "familyId" SET DEFAULT 'legacy'`)
         await queryRunner.query('ALTER TABLE "mcp_oauth_token" DROP COLUMN "familyId"')
         await queryRunner.query('ALTER TABLE "mcp_oauth_token" DROP COLUMN "previousRefreshToken"')
     }
