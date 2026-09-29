@@ -321,11 +321,11 @@ export default function SettingsPage() {
           <CardContent className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-foreground">Project Display Name</label>
-              <Input defaultValue={currentProject?.displayName || 'InboxFM Main Project'} readOnly />
+              <Input value={currentProject?.displayName || '—'} readOnly />
             </div>
             <div className="space-y-1">
               <label className="text-xs font-semibold text-foreground">Project ID</label>
-              <Input defaultValue={currentProject?.id || 'proj_default'} readOnly className="font-mono text-xs" />
+              <Input value={currentProject?.id || '—'} readOnly className="font-mono text-xs" />
             </div>
           </CardContent>
         </Card>
@@ -344,11 +344,11 @@ export default function SettingsPage() {
           <CardContent className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-foreground">Email Address</label>
-              <Input defaultValue={user?.email || 'developer@inboxfm.local'} readOnly />
+              <Input value={user?.email || '—'} readOnly />
             </div>
             <div className="space-y-1">
               <label className="text-xs font-semibold text-foreground">Platform Role</label>
-              <Input defaultValue={user?.platformRole || 'ADMIN'} readOnly />
+              <Input value={user?.platformRole || '—'} readOnly />
             </div>
           </CardContent>
         </Card>
@@ -417,9 +417,17 @@ export default function SettingsPage() {
             <p className="text-xs text-muted-foreground leading-relaxed">
               Every query and execution is isolated by <code className="font-mono text-primary font-bold">x-project-id</code> and validated through Fastify security middleware.
             </p>
-            <Button size="sm" variant="outline" className="text-xs" onClick={() => toast.success('Security policies are active.')}>
-              Inspect Security Policies
-            </Button>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Badge variant="outline" className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
+                Tenant Isolation Active
+              </Badge>
+              <Badge variant="outline" className="text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-500/20">
+                SSRF Guard Active
+              </Badge>
+              <Badge variant="outline" className="text-[11px] font-medium text-primary bg-primary/10 border-primary/20">
+                Scoped RBAC
+              </Badge>
+            </div>
           </CardContent>
         </Card>
       </div>
