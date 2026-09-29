@@ -121,3 +121,26 @@ describe('public ingress rate limit (#351)', () => {
         expect(response.statusCode).not.toBe(StatusCodes.TOO_MANY_REQUESTS)
     })
 })
+
+
+describe('trigger-binding run ingress body limit (#351)', () => {
+    it('rejects an oversized body with 413 before the handler runs', async () => {
+        const ctx = await createTestContext()
+        const binding = await saveBinding(ctx)
+
+        const oversized = { blob: 'x'.repeat(1024 * 1024 + 4096) }
+        const response = await runUnauthenticated(binding.id, oversized)
+
+        expect(response.statusCode).toBe(StatusCodes.REQUEST_TOO_LONG)
+    })
+
+    it('still accepts a body just under the limit', async () => {
+        const ctx = await createTestContext()
+        const binding = await saveBinding(ctx)
+
+        const ok = { data: 'y'.repeat(1024 * 512) }
+        const response = await runUnauthenticated(binding.id, ok)
+
+        expect(response.statusCode).not.toBe(StatusCodes.REQUEST_TOO_LONG)
+    })
+})
