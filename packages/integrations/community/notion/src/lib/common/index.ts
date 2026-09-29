@@ -20,27 +20,67 @@ export function getNotionToken(auth: NotionAuthValue): string {
   return getAccessTokenOrThrow(auth);
 }
 
-export const fetchAllWorkspaceUsers = async (notion: Client) => {
-  const users: Awaited<ReturnType<typeof notion.users.list>>['results'] = [];
+export type NotionUsersListResponse = {
+  results: Array<{
+    id: string;
+    name?: string | null;
+    type?: string;
+    [key: string]: unknown;
+  }>;
+  has_more?: boolean | null;
+  next_cursor?: string | null;
+};
+
+export type NotionUsersClient = {
+  users: {
+    list: (args: {
+      page_size?: number;
+      start_cursor?: string;
+    }) => Promise<NotionUsersListResponse>;
+  };
+};
+
+export const fetchAllWorkspaceUsers = async (
+  notion: Pick<Client, 'users'> | NotionUsersClient
+): Promise<{
+  users: NotionUsersListResponse['results'];
+  truncated: boolean;
+}> => {
+  const users: NotionUsersListResponse['results'] = [];
   let cursor: string | undefined = undefined;
   let hasMore = true;
+  let truncated = false;
   const MAX_PAGES = 50; // Safety cap: up to 5,000 members
   let pageCount = 0;
 
   while (hasMore && pageCount < MAX_PAGES) {
     pageCount++;
-    const response = await notion.users.list({
-      page_size: 100,
-      start_cursor: cursor,
-    });
-    if (Array.isArray(response.results)) {
-      users.push(...response.results);
+    try {
+      const response: NotionUsersListResponse = await notion.users.list({
+        page_size: 100,
+        start_cursor: cursor,
+      });
+      if (Array.isArray(response.results)) {
+        users.push(...response.results);
+      }
+      hasMore = response.has_more ?? false;
+      cursor = response.next_cursor ?? undefined;
+      if (hasMore && !cursor) {
+        truncated = true;
+        break;
+      }
+    } catch (error) {
+      console.error('Notion: failed to fetch workspace users page', error);
+      truncated = true;
+      break;
     }
-    hasMore = response.has_more ?? false;
-    cursor = response.next_cursor ?? undefined;
   }
 
-  return users;
+  if (pageCount >= MAX_PAGES && hasMore) {
+    truncated = true;
+  }
+
+  return { users, truncated };
 };
 
 export const notionCommon = {
@@ -195,9 +235,10 @@ export const notionCommon = {
           auth: getNotionToken(auth as NotionAuthValue),
           notionVersion: '2022-02-22',
         });
-        let cachedUsers:
-          | Awaited<ReturnType<typeof notion.users.list>>['results']
-          | null = null;
+        // Cached per database resolution to avoid redundant Notion API roundtrips across multiple people properties
+        let cachedUsers: Awaited<
+          ReturnType<typeof fetchAllWorkspaceUsers>
+        > | null = null;
         const getWorkspaceUsers = async () => {
           if (!cachedUsers) {
             cachedUsers = await fetchAllWorkspaceUsers(notion);
@@ -228,22 +269,26 @@ export const notionCommon = {
               continue;
             }
             if (property.type === 'people') {
-              const results = await getWorkspaceUsers();
+              const { users: results, truncated } = await getWorkspaceUsers();
+              const userOptions = results
+                .filter((user) => user.type === 'person' && user.name !== null)
+                .map((option) => ({
+                  label: option.name as string,
+                  value: option.id,
+                }));
+              if (truncated) {
+                userOptions.push({
+                  label:
+                    '⚠️ Could not load all workspace members (partial list)',
+                  value: '__truncated_notice__',
+                });
+              }
               fields[property.name] = Property.StaticMultiSelectDropdown({
                 displayName: property.name,
                 required: false,
                 options: {
                   disabled: false,
-                  options: results
-                    .filter(
-                      (user) => user.type === 'person' && user.name !== null
-                    )
-                    .map((option: { id: string; name: any }) => {
-                      return {
-                        label: option.name,
-                        value: option.id,
-                      };
-                    }),
+                  options: userOptions,
                 },
               });
             } else {
@@ -285,9 +330,10 @@ export const notionCommon = {
           auth: getNotionToken(auth as NotionAuthValue),
           notionVersion: '2022-02-22',
         });
-        let cachedUsers:
-          | Awaited<ReturnType<typeof notion.users.list>>['results']
-          | null = null;
+        // Cached per database resolution to avoid redundant Notion API roundtrips across multiple people properties
+        let cachedUsers: Awaited<
+          ReturnType<typeof fetchAllWorkspaceUsers>
+        > | null = null;
         const getWorkspaceUsers = async () => {
           if (!cachedUsers) {
             cachedUsers = await fetchAllWorkspaceUsers(notion);
@@ -318,20 +364,26 @@ export const notionCommon = {
               continue;
             }
             if (property.type === 'people') {
-              const results = await getWorkspaceUsers();
+              const { users: results, truncated } = await getWorkspaceUsers();
+              const userOptions = results
+                .filter((user) => user.type === 'person' && user.name !== null)
+                .map((option) => ({
+                  label: option.name as string,
+                  value: option.id,
+                }));
+              if (truncated) {
+                userOptions.push({
+                  label:
+                    '⚠️ Could not load all workspace members (partial list)',
+                  value: '__truncated_notice__',
+                });
+              }
               fields[property.name] = Property.StaticDropdown({
                 displayName: property.name,
                 required: false,
                 options: {
                   disabled: false,
-                  options: results
-                    .filter(
-                      (user) => user.type === 'person' && user.name !== null
-                    )
-                    .map((option) => ({
-                      label: option.name as string,
-                      value: option.id,
-                    })),
+                  options: userOptions,
                 },
               });
             } else {
