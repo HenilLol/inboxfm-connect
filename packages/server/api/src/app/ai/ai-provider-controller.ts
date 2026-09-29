@@ -71,7 +71,7 @@ const ListModels = {
 
 const CreateAIProvider = {
     config: {
-        security: securityAccess.publicPlatform([PrincipalType.USER]),
+        security: securityAccess.platformAdminOnly([PrincipalType.USER]),
         rateLimit: syncExecutionRateLimitOptions,
     },
     schema: {
@@ -81,7 +81,7 @@ const CreateAIProvider = {
 
 const UpdateAIProvider = {
     config: {
-        security: securityAccess.publicPlatform([PrincipalType.USER]),
+        security: securityAccess.platformAdminOnly([PrincipalType.USER]),
         rateLimit: syncExecutionRateLimitOptions,
     },
     schema: {
@@ -94,7 +94,7 @@ const UpdateAIProvider = {
 
 const DeleteAIProvider = {
     config: {
-        security: securityAccess.publicPlatform([PrincipalType.USER]),
+        security: securityAccess.platformAdminOnly([PrincipalType.USER]),
         rateLimit: syncExecutionRateLimitOptions,
     },
     schema: {

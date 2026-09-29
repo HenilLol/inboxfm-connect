@@ -67,7 +67,7 @@ export const executionController: FastifyPluginAsyncZod = async (fastify) => {
             'Connection': 'keep-alive',
         })
 
-        const { replayedCount } = await streamResumableExecutionEvents({ executionId, lastEventId, reply })
+        const { replayedCount, listener } = await streamResumableExecutionEvents({ executionId, lastEventId, reply })
 
         request.log.info({
             execution: { id: executionId },
@@ -76,7 +76,7 @@ export const executionController: FastifyPluginAsyncZod = async (fastify) => {
         }, '[executionController] SSE client (re)connected')
 
         request.raw.on('close', () => {
-            executionEventService.unsubscribe({ executionId }).catch(() => {})
+            executionEventService.unsubscribe({ executionId, listener }).catch(() => {})
         })
 
         return reply
@@ -87,6 +87,7 @@ export const executionController: FastifyPluginAsyncZod = async (fastify) => {
             projectId: request.projectId,
             status: request.query.status,
             limit: request.query.limit,
+            cursor: request.query.cursor,
         })
     })
 }
@@ -107,7 +108,7 @@ async function streamResumableExecutionEvents({
     executionId: string
     lastEventId: string | null
     reply: FastifyReply
-}): Promise<{ replayedCount: number }> {
+}): Promise<{ replayedCount: number, listener: (event: ExecutionEvent) => void }> {
     let highWaterSeq = executionEventService.parseSequenceFromId({ eventId: lastEventId }) ?? 0
     let isReplayingHistory = true
     const bufferedLiveEvents: ExecutionEvent[] = []
@@ -125,15 +126,17 @@ async function streamResumableExecutionEvents({
         reply.raw.write(`data: ${JSON.stringify(event)}\n\n`)
     }
 
+    const listener = (event: ExecutionEvent): void => {
+        if (isReplayingHistory) {
+            bufferedLiveEvents.push(event)
+            return
+        }
+        writeEvent(event)
+    }
+
     await executionEventService.subscribe({
         executionId,
-        listener: (event) => {
-            if (isReplayingHistory) {
-                bufferedLiveEvents.push(event)
-                return
-            }
-            writeEvent(event)
-        },
+        listener,
     })
 
     const history = await executionEventService.getEventsSince({ executionId, lastEventId })
@@ -151,7 +154,7 @@ async function streamResumableExecutionEvents({
         writeEvent(event)
     }
 
-    return { replayedCount: history.length }
+    return { replayedCount: history.length, listener }
 }
 
 function firstHeaderValue(value: string | string[] | undefined): string | null {
