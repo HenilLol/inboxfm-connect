@@ -8,40 +8,57 @@ const path = require('path');
 const nodeVersion = execSync('node --version').toString().trim();
 const requiredVersions = ['v18', 'v22', 'v24'];
 
-// Check operating system
-const os = process.platform;
-console.log(`Running on ${os} operating system.`)
-
-if (requiredVersions.some(version => nodeVersion.startsWith(version))) {
-  console.log(`Node.js version is compatible ${nodeVersion}.`);
-} else {
-  console.log(`Node.js version is not compatible. Required version: ${requiredVersions.toString()}`);
-  process.exit(1);
-}
-
-
-
-try {
-  // Try to get bun version to check if installed
-  execSync("bun --version", { stdio: "ignore" });
-  console.log("✅ Bun is already installed.");
-} catch {
-  console.log("⚙️ Bun not found. Installing globally...");
-  try {
-    execSync("npm install -g bun", { stdio: "inherit" });
-    console.log("✅ Bun installed successfully.");
-  } catch (err) {
-    console.error("❌ Failed to install Bun:", err.message);
-    process.exit(1);
+function assertSupportedNodeVersion({ version }) {
+  if (!requiredVersions.some((required) => version.startsWith(required))) {
+    throw new Error(`Node.js version is not compatible. Required version: ${requiredVersions.toString()}`);
   }
 }
 
-execSync('bun install --frozen-lockfile', {
-  stdio: 'inherit',
-  env: { ...process.env, REDISMS_VERSION: process.env.REDISMS_VERSION || '7.4.0' },
-});
+function main() {
+  // Check operating system
+  const os = process.platform;
+  console.log(`Running on ${os} operating system.`)
+
+  assertSupportedNodeVersion({ version: nodeVersion });
+  console.log(`Node.js version is compatible ${nodeVersion}.`);
+  installDependencies();
+}
+
+
+
+function installDependencies() {
+  try {
+    // Try to get bun version to check if installed
+    execSync("bun --version", { stdio: "ignore" });
+    console.log("✅ Bun is already installed.");
+  } catch {
+    console.log("⚙️ Bun not found. Installing globally...");
+    try {
+      execSync("npm install -g bun", { stdio: "inherit" });
+      console.log("✅ Bun installed successfully.");
+    } catch (err) {
+      console.error("❌ Failed to install Bun:", err.message);
+      process.exit(1);
+    }
+  }
+
+  execSync('bun install --frozen-lockfile', {
+    stdio: 'inherit',
+    env: { ...process.env, REDISMS_VERSION: process.env.REDISMS_VERSION || '7.4.0' },
+  });
+}
 
 const IGNORED_DIRS = new Set(['node_modules', 'dist', 'framework', 'common']);
+
+const resolveIntegrationsRoot = ({ cwd }) => {
+  const integrationsRoot = path.resolve(cwd, 'packages', 'integrations');
+  if (!fs.existsSync(integrationsRoot)) {
+    throw new Error(
+      `❌ Integrations directory not found at "${integrationsRoot}". Run this script from the repository root after a complete clone.`,
+    );
+  }
+  return integrationsRoot;
+};
 
 const findAllPieceFolders = (folderPath) => {
   const results = [];
@@ -59,19 +76,11 @@ const findAllPieceFolders = (folderPath) => {
 };
 
 // Pre-build dev pieces so dist/ exists before the server starts
-const dotenv = require('dotenv');
-let envConfig = {};
-try {
-  envConfig = dotenv.parse(fs.readFileSync('.env.dev', 'utf-8'));
-} catch { }
-
-const devPieces = process.env.AP_DEV_PIECES || envConfig.AP_DEV_PIECES;
-
-if (devPieces) {
+function resolveDevPieceFilters({ devPieces, integrationsRoot }) {
   const pieceNames = [...new Set(devPieces.split(',').map(n => n.trim()))];
-  const allFolders = findAllPieceFolders(path.resolve('packages', 'integrations'));
+  const allFolders = findAllPieceFolders(integrationsRoot);
 
-  const pieceFilters = pieceNames.map(name => {
+  return pieceNames.map(name => {
     const dir = allFolders.find(p => p.endsWith(path.sep + name));
     if (!dir) {
       throw new Error(`❌ Piece folder not found for: "${name}".`);
@@ -79,7 +88,44 @@ if (devPieces) {
     const packageName = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8')).name;
     return `--filter=${packageName}`;
   }).join(' ');
+}
+
+function buildDevPieces({ cwd, env }) {
+  const dotenv = require('dotenv');
+  let envConfig = {};
+  try {
+    envConfig = dotenv.parse(fs.readFileSync(path.join(cwd, '.env.dev'), 'utf-8'));
+  } catch { }
+
+  const devPieces = env.AP_DEV_PIECES || envConfig.AP_DEV_PIECES;
+  if (!devPieces) {
+    return;
+  }
+  const integrationsRoot = resolveIntegrationsRoot({ cwd });
+  const pieceFilters = resolveDevPieceFilters({ devPieces, integrationsRoot });
 
   console.log(`Building dev pieces: ${devPieces}`);
   execSync(`npx turbo run build ${pieceFilters}`, { stdio: 'inherit' });
 }
+
+function runSetupDev({ cwd, env }) {
+  main();
+  installDependencies();
+  buildDevPieces({ cwd, env });
+}
+
+if (require.main === module) {
+  try {
+    runSetupDev({ cwd: process.cwd(), env: process.env });
+  } catch (err) {
+    console.error(err.message);
+    process.exit(1);
+  }
+}
+
+module.exports = {
+  assertSupportedNodeVersion,
+  resolveIntegrationsRoot,
+  resolveDevPieceFilters,
+  findAllPieceFolders,
+};
