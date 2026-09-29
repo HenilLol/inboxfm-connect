@@ -62,7 +62,7 @@ The API test environment supplies PGlite and memory Redis; the dedicated CI job 
 
 Add meaningful regression tests for behavior changes. Cover the edition and plan paths affected by a change, including CE, EE, Cloud standard/paid/enterprise where relevant. Enterprise tests exercise development/testing permission; they do not authorize production use.
 
-Before changing migrations, read the [Database Migrations Playbook](https://www.inboxfm-connect.com/docs/handbook/engineering/playbooks/database-migration#database-migrations). Do not generate a migration just to silence an infrastructure failure.
+Before changing migrations, read the [Database Migrations Playbook](docs/handbook/engineering/playbooks/database-migration.mdx). Do not generate a migration just to silence an infrastructure failure.
 
 ## Submit and review
 
