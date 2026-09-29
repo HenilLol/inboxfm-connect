@@ -2,6 +2,7 @@ import { createAction, Property, StoreScope } from '@inboxfm-connect/pieces-fram
 import { groqAuth } from '../..';
 import { httpClient, HttpMethod, AuthenticationType } from '@inboxfm-connect/pieces-common';
 import { askAiActionOutputSchema } from '../output-schemas';
+import { trimHistoryToBudget } from '../history-guard';
 
 export const askGroq = createAction({
   audience: 'human',
@@ -171,6 +172,9 @@ export const askGroq = createAction({
 
 		// Store history if memory key is set
 		if (memoryKey) {
+			// Bound the stored history so long-running memoryKey flows cannot
+			// wedge themselves past the model context window (issue #381).
+			messageHistory = trimHistoryToBudget(messageHistory);
 			await store.put(memoryKey, messageHistory, StoreScope.PROJECT);
 		}
 

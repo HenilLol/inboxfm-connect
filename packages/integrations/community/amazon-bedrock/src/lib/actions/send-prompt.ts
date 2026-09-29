@@ -11,6 +11,7 @@ import {
   Message,
 } from '@aws-sdk/client-bedrock-runtime';
 import { awsBedrockCombinedAuth } from '../auth';
+import { trimHistoryToBudget } from '../history-guard';
 import {
   buildFileContentBlock,
   buildS3ContentBlock,
@@ -187,6 +188,9 @@ export const sendPrompt = createAction({
       }
 
       if (memoryKey) {
+        // Bound the stored history so long-running memoryKey flows cannot
+        // wedge themselves past the model context window (issue #381).
+        messageHistory = trimHistoryToBudget(messageHistory);
         await store.put(memoryKey, messageHistory, StoreScope.PROJECT);
       }
 

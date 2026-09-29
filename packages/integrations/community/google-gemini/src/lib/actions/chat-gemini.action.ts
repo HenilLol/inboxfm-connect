@@ -1,4 +1,5 @@
 import { Content, GoogleGenerativeAI } from '@google/generative-ai';
+import { trimHistoryToBudget } from '../common/history-guard';
 import {
   Property,
   StoreScope,
@@ -66,7 +67,10 @@ export const chatGemini = createAction({
 
     if (memoryKey) {
       const updatedHistory = await chat.getHistory();
-      await store.put(memoryKey, updatedHistory, StoreScope.PROJECT);
+      // Bound the stored history so long-running memoryKey flows cannot
+      // wedge themselves past the model context window (issue #381).
+      const boundedHistory = trimHistoryToBudget(updatedHistory);
+      await store.put(memoryKey, boundedHistory, StoreScope.PROJECT);
     }
 
     return {
