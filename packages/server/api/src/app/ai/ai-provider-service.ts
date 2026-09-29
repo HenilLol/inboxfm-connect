@@ -36,7 +36,7 @@ export const aiProviderService = (log: FastifyBaseLogger) => ({
                 auth: await encryptUtils.encryptObject({}),
                 config: {},
                 provider: AIProviderName.ACTIVEPIECES,
-                displayName: 'Activepieces',
+                displayName: 'Inboxfm Connect',
                 platformId,
                 enabledForChat: !hasChatProvider,
             })
