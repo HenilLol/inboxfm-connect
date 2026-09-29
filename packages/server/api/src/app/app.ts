@@ -128,7 +128,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
                 },
             },
             info: {
-                title: 'Activepieces Documentation',
+                title: 'Inboxfm Connect Documentation',
                 version: '0.0.0',
             },
             externalDocs: {
@@ -276,7 +276,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     const edition = system.getEdition()
     app.log.info({
         edition,
-    }, 'Activepieces Edition')
+    }, 'Inboxfm Connect Edition')
     switch (edition) {
         case ApEdition.CLOUD:
             await app.register(licenseKeysModule)
