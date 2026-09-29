@@ -87,38 +87,64 @@ const executionEventService = {
         executionId: string
         listener: (event: ExecutionEvent) => void
     }): Promise<void> {
+        const isFirstListener = !memoryListeners.has(executionId) || memoryListeners.get(executionId)!.size === 0
+
         if (!memoryListeners.has(executionId)) {
             memoryListeners.set(executionId, new Set())
         }
         memoryListeners.get(executionId)!.add(listener)
 
-        try {
-            await pubsub.subscribe(`execution:${executionId}:events`, (message) => {
-                try {
-                    const event = JSON.parse(message) as ExecutionEvent
-                    listener(event)
-                }
-                catch (err) {
-                    // Ignore malformed messages
-                }
-            })
-        }
-        catch (err) {
-            // Pubsub unavailable in offline unit tests
+        // Only create one Redis subscription per execution; it fans out to all
+        // in-memory listeners so N connected clients share one pubsub channel.
+        if (isFirstListener) {
+            try {
+                await pubsub.subscribe(`execution:${executionId}:events`, (message) => {
+                    try {
+                        const event = JSON.parse(message) as ExecutionEvent
+                        const listeners = memoryListeners.get(executionId)
+                        if (!isNil(listeners)) {
+                            for (const cb of listeners) {
+                                try {
+                                    cb(event)
+                                }
+                                catch (_) {
+                                    // Ignore individual listener errors
+                                }
+                            }
+                        }
+                    }
+                    catch (err) {
+                        // Ignore malformed messages
+                    }
+                })
+            }
+            catch (err) {
+                // Pubsub unavailable in offline unit tests
+            }
         }
     },
 
     async unsubscribe({
         executionId,
+        listener,
     }: {
         executionId: string
+        listener: (event: ExecutionEvent) => void
     }): Promise<void> {
-        memoryListeners.delete(executionId)
-        try {
-            await pubsub.unsubscribe(`execution:${executionId}:events`)
-        }
-        catch (err) {
-            // Ignore pubsub failures
+        const listeners = memoryListeners.get(executionId)
+        if (!isNil(listeners)) {
+            listeners.delete(listener)
+            if (listeners.size === 0) {
+                memoryListeners.delete(executionId)
+                // Tear down the shared Redis subscription only when the last
+                // client disconnects so other viewers keep receiving events.
+                try {
+                    await pubsub.unsubscribe(`execution:${executionId}:events`)
+                }
+                catch (err) {
+                    // Ignore pubsub failures
+                }
+            }
         }
     },
 
