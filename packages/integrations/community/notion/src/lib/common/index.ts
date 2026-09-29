@@ -5,7 +5,7 @@ import {
   DynamicPropsValue,
 } from '@inboxfm-connect/pieces-framework';
 import { AppConnectionType } from '@inboxfm-connect/pieces-framework';
-import { Client } from '@notionhq/client';
+import { Client, collectPaginatedAPI } from '@notionhq/client';
 import { NotionFieldMapping } from './models';
 import { notionAuth } from '../auth';
 
@@ -196,7 +196,9 @@ export const notionCommon = {
               continue;
             }
             if (property.type === 'people') {
-              const { results } = await notion.users.list({ page_size: 100 });
+              const results = await listAllWorkspaceUsers({
+                listUsers: (args) => notion.users.list(args),
+              });
               fields[property.name] = Property.StaticMultiSelectDropdown({
                 displayName: property.name,
                 required: false,
@@ -206,9 +208,9 @@ export const notionCommon = {
                     .filter(
                       (user) => user.type === 'person' && user.name !== null
                     )
-                    .map((option: { id: string; name: any }) => {
+                    .map((option: WorkspaceUser) => {
                       return {
-                        label: option.name,
+                        label: option.name ?? option.id,
                         value: option.id,
                       };
                     }),
@@ -277,7 +279,9 @@ export const notionCommon = {
               continue;
             }
             if (property.type === 'people') {
-              const { results } = await notion.users.list({ page_size: 100 });
+              const results = await listAllWorkspaceUsers({
+                listUsers: (args) => notion.users.list(args),
+              });
               fields[property.name] = Property.StaticDropdown({
                 displayName: property.name,
                 required: false,
@@ -343,6 +347,25 @@ export const notionCommon = {
     },
   }),
 };
+
+export type WorkspaceUser = {
+  id: string;
+  type?: string;
+  name?: string | null;
+};
+
+export async function listAllWorkspaceUsers({
+  listUsers,
+}: {
+  listUsers: (args: { page_size: number; start_cursor?: string }) => Promise<{
+    object: 'list';
+    results: WorkspaceUser[];
+    has_more: boolean;
+    next_cursor: string | null;
+  }>;
+}): Promise<WorkspaceUser[]> {
+  return collectPaginatedAPI(listUsers, { page_size: 100 });
+}
 
 export async function getPages(
   auth: NotionAuthValue,
