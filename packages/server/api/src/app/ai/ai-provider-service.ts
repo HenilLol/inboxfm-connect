@@ -4,6 +4,7 @@ import { FastifyBaseLogger } from 'fastify'
 import cron from 'node-cron'
 import { repoFactory } from '../core/db/repo-factory'
 import { flagService } from '../flags/flag.service'
+import { cryptoUtils } from '@inboxfm-connect/server-utils'
 import { encryptUtils } from '../helper/encryption'
 import { AIProviderEntity, AIProviderSchema } from './ai-provider-entity'
 import { aiProviders } from './providers'
@@ -55,9 +56,19 @@ export const aiProviderService = (log: FastifyBaseLogger) => ({
     async listModels(platformId: PlatformId, provider: AIProviderName): Promise<AIProviderModel[]> {
         const { config, auth } = await this.getConfigOrThrow({ platformId, provider })
 
-        const cacheKey = `${provider}-${getAuthCacheFingerprint({ provider, auth, config })}`
+        const fingerprint = getAuthCacheFingerprint({ provider, auth, config })
+        const cacheKey = `${provider}-${fingerprint}`
         if (modelsCache.has(cacheKey) && !('models' in config)) {
             return modelsCache.get(cacheKey)!
+        }
+
+        // Rotation cleanup (issue #402): a credential change means every other
+        // cached entry for this provider is superseded — drop it now instead of
+        // letting retired fingerprints linger until the midnight sweep.
+        for (const key of modelsCache.keys()) {
+            if (key.startsWith(`${provider}-`) && key !== cacheKey) {
+                modelsCache.delete(key)
+            }
         }
 
         const data = await aiProviders[provider].listModels(auth, config)
@@ -205,16 +216,24 @@ async function doesActivepiecesProviderHasKeys(aiProvider: AIProviderSchema): Pr
     return !isNil(decryptedAuth) && !isNil(decryptedAuth.apiKey) && decryptedAuth.apiKey !== ''
 }
 
-function getAuthCacheFingerprint({ provider, auth, config }: { provider: AIProviderName, auth: AIProviderAuthConfig, config: AIProviderConfig }): string {
+// Cache keys are fingerprints of the credential, never the credential itself
+// (issue #402): the previous key format embedded the raw AWS secretAccessKey /
+// provider API key as a Map string, keeping decrypted secrets resident in the
+// heap until the midnight sweep — and every rotation left the retired key's
+// entry behind with the raw secret still inside it. Hashing keeps rotation
+// detection (new credential -> new fingerprint) without retaining secrets, and
+// scoping by provider stops two providers sharing one API key from colliding
+// into a single cache entry.
+export function getAuthCacheFingerprint({ provider, auth, config }: { provider: AIProviderName, auth: AIProviderAuthConfig, config: AIProviderConfig }): string {
     switch (provider) {
         case AIProviderName.BEDROCK: {
             const { accessKeyId, secretAccessKey } = auth as BedrockProviderAuthConfig
             const { region } = config as BedrockProviderConfig
-            return `${accessKeyId}-${secretAccessKey}-${region}`
+            return cryptoUtils.hashSHA256(`${provider}:${accessKeyId}:${secretAccessKey}:${region ?? ''}`)
         }
         default: {
             const { apiKey } = auth as BaseAIProviderAuthConfig
-            return apiKey
+            return cryptoUtils.hashSHA256(`${provider}:${apiKey ?? ''}`)
         }
     }
 }
