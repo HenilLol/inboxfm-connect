@@ -13,40 +13,45 @@ export const calculateTokensFromString = (string: string, model: string) => {
   }
 };
 
+// The stored chat history holds { role, content } message objects (see ask-gpt.ts),
+// not plain strings, so the estimator must read the message content. Estimating
+// the whole object (e.g. via String(message).length) silently returns NaN and
+// disables the context guard entirely.
 export const calculateMessagesTokenSize = async (
-  messages: string[],
+  messages: { role: string; content: string }[],
   model: string
 ) => {
   let tokenLength = 0;
-  await Promise.all(
-    messages.map((message: string) => {
-      return new Promise((resolve) => {
-        tokenLength += calculateTokensFromString(message, model);
-        resolve(tokenLength);
-      });
-    })
-  );
+  for (const message of messages) {
+    tokenLength += calculateTokensFromString(message.content, model);
+  }
 
   return tokenLength;
 };
 
 export const reduceContextSize = async (
-  messages: string[],
+  messages: { role: string; content: string }[],
   model: string,
-  maxTokens: number
+  maxTokens: number,
+  // Roles/system messages ride along on every request but are not part of the
+  // history being reduced; subtract their tokens from the budget so what
+  // remains actually fits alongside the system prompt (review #342, item 2).
+  rolesTokenLength = 0
 ) => {
   // TODO: Summarize context instead of cutoff
-  const cutoffSize = Math.round(messages.length * 0.1);
-  const cutoffMessages = messages.splice(cutoffSize, messages.length - 1);
-
-  if (
-    (await calculateMessagesTokenSize(cutoffMessages, model)) >
-    maxTokens / 1.5
+  // Cut from the front (oldest first) without mutating the caller's array, and
+  // keep cutting while the remaining history still exceeds the budget.
+  let currentMessages = [...messages];
+  while (
+    currentMessages.length > 1 &&
+    (await calculateMessagesTokenSize(currentMessages, model)) >
+      maxTokens / 1.5 - rolesTokenLength
   ) {
-    reduceContextSize(cutoffMessages, model, maxTokens);
+    const cutoffSize = Math.max(1, Math.round(currentMessages.length * 0.1));
+    currentMessages = currentMessages.slice(cutoffSize);
   }
 
-  return cutoffMessages;
+  return currentMessages;
 };
 
 export const exceedsHistoryLimit = (
