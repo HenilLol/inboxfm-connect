@@ -314,8 +314,8 @@ export const createProductAction = createAction({
 
         try {
           const client = new BexioClient(auth);
-          // TODO: Need to confirm endpoint - assuming /2.0/stock or /2.0/stock_location
-          const stocks = await client.get<Array<{ id: number; name: string }>>('/2.0/stock').catch(() => []);
+          // Confirmed against the Bexio API docs (docs.bexio.com): GET /2.0/stock
+          const stocks = await client.get<Array<{ id: number; name: string }>>('/2.0/stock');
 
           return {
             disabled: false,
@@ -350,8 +350,8 @@ export const createProductAction = createAction({
 
         try {
           const client = new BexioClient(auth);
-          // TODO: Need to confirm endpoint - assuming /2.0/stock_place or /2.0/stock_area
-          const stockPlaces = await client.get<Array<{ id: number; name: string }>>('/2.0/stock_place').catch(() => []);
+          // Confirmed against the Bexio API docs (docs.bexio.com): GET /2.0/stock_place
+          const stockPlaces = await client.get<Array<{ id: number; name: string }>>('/2.0/stock_place');
 
           return {
             disabled: false,
@@ -411,41 +411,10 @@ export const createProductAction = createAction({
       description: 'Delivery price',
       required: false,
     }),
-    article_group_id: Property.Dropdown({
-      auth: bexioAuth,
-      displayName: 'Article Group',
-      description: 'Product group/category',
+    article_group_id: Property.Number({
+      displayName: 'Article Group ID',
+      description: 'ID of the product group (article_group_id). The Bexio API exposes no article-group listing endpoint, so enter the ID from your Bexio account.',
       required: false,
-      refreshers: [],
-      options: async ({ auth }) => {
-        if (!auth) {
-          return {
-            disabled: true,
-            placeholder: 'Connect your Bexio account first',
-            options: [],
-          };
-        }
-
-        try {
-          const client = new BexioClient(auth);
-          // TODO: Need to confirm endpoint - assuming /2.0/article_group
-          const groups = await client.get<Array<{ id: number; name: string }>>('/2.0/article_group').catch(() => []);
-
-          return {
-            disabled: false,
-            options: groups.map((group) => ({
-              label: group.name,
-              value: group.id,
-            })),
-          };
-        } catch (error) {
-          return {
-            disabled: true,
-            placeholder: 'Failed to load article groups',
-            options: [],
-          };
-        }
-      },
     }),
     account_id: bexioCommonProps.account({
       displayName: 'Account',

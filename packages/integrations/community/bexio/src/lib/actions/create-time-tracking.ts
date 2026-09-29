@@ -72,8 +72,8 @@ export const createTimeTrackingAction = createAction({
 
         try {
           const client = new BexioClient(auth);
-          // TODO: Need to confirm endpoint - assuming /2.0/timesheet_status
-          const statuses = await client.get<Array<{ id: number; name: string }>>('/2.0/timesheet_status').catch(() => []);
+          // Confirmed against the Bexio API docs (docs.bexio.com): GET /2.0/timesheet_status
+          const statuses = await client.get<Array<{ id: number; name: string }>>('/2.0/timesheet_status');
 
           return {
             disabled: false,
@@ -108,8 +108,8 @@ export const createTimeTrackingAction = createAction({
 
         try {
           const client = new BexioClient(auth);
-          // TODO: Need to confirm endpoint - assuming /2.0/client_service
-          const services = await client.get<Array<{ id: number; name: string }>>('/2.0/client_service').catch(() => []);
+          // Confirmed against the Bexio API docs (docs.bexio.com): GET /2.0/client_service
+          const services = await client.get<Array<{ id: number; name: string }>>('/2.0/client_service');
 
           return {
             disabled: false,
