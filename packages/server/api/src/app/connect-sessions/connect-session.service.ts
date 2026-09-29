@@ -67,8 +67,8 @@ export const connectSessionService = {
             .where('id = :id AND "consumedAt" IS NULL AND "expiresAt" > :now', { id, now })
             .returning('id')
             .execute()
-        const returnedRows = updateResult.raw as unknown[]
-        if (Array.isArray(returnedRows) && returnedRows.length === 0) {
+        const returnedRows: unknown = updateResult.raw
+        if (!Array.isArray(returnedRows) || returnedRows.length === 0) {
             throw new ActivepiecesError({
                 code: ErrorCode.SESSION_EXPIRED,
                 params: {
@@ -91,7 +91,9 @@ export const connectSessionService = {
                 where: {
                     expiresAt: LessThan(boundaryIso),
                 },
-                take: MAX_SESSIONS_PER_CLEANUP_ITERATION,
+                // Clamp the batch to the remaining budget so custom maxPerRun values
+                // cannot overshoot between iteration boundaries.
+                take: Math.min(MAX_SESSIONS_PER_CLEANUP_ITERATION, maxPerRun - totalDeleted),
             })
             if (expiredSessions.length === 0) {
                 break
