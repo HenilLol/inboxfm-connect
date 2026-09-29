@@ -132,14 +132,17 @@ export const askGpt = createAction({
 
         const completion = await openai.getChatCompletions(propsValue.deploymentId, [...roles, ...messageHistory], completionOptions);
 
-        const responseText = completion.choices[0].message?.content;
+        const responseText = completion.choices[0].message?.content ?? '';
 
         // Add response to message history
         // The stored history holds { role, content } objects; appending a bare
         // string would corrupt the shape and be rejected by the API next turn.
+        // `content` can be undefined when the model filters the response; fall
+        // back to '' so the stored shape stays valid instead of throwing on
+        // undefined.length in the estimator next turn.
         messageHistory = [
             ...messageHistory,
-            { role: 'assistant', content: responseText },
+            { role: 'assistant', content: responseText ?? '' },
         ];
 
         // Check message history token size
