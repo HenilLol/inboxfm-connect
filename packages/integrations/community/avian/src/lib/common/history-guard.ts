@@ -8,6 +8,39 @@
 // budget (~4 chars/token estimate, 32k default), in addition to the count cap.
 export const HISTORY_TOKEN_BUDGET = 32000;
 
+// Context windows for the OpenAI-compatible models this piece's dropdown can
+// serve (review #386, aligned with the openai piece's sibling table): base
+// gpt-3.5-turbo is 4096 — only the -16k variants are 16k. Unknown models keep
+// the conservative 2048 fallback so unresolved models never over-admit history.
+export const modelTokenLimit = (model: string): number => {
+  switch (model) {
+    case 'gpt-4o':
+    case 'gpt-4o-mini':
+      return 128000;
+    case 'gpt-4.1':
+    case 'gpt-4.1-mini':
+      return 1000000;
+    case 'gpt-35-turbo':
+    case 'gpt-3.5-turbo':
+      return 4096;
+    case 'gpt-35-turbo-16k':
+    case 'gpt-3.5-turbo-16k':
+    case 'gpt-35-turbo-1106':
+    case 'gpt-3.5-turbo-1106':
+      return 16385;
+    case 'gpt-4':
+      return 8192;
+    default:
+      return 2048;
+  }
+};
+
+// Window-aware budget: the 32k system cap still bounds the stored history, but
+// models with smaller real windows get a tighter budget so the guard trims to
+// what the model can actually accept (review #386).
+export const historyBudgetFor = (model: string): number =>
+  Math.min(HISTORY_TOKEN_BUDGET, Math.max(1000, (modelTokenLimit(model) / 1.1) | 0));
+
 export const estimateTokens = (message: { content?: unknown }): number => {
   const text =
     typeof message?.content === 'string'

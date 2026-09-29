@@ -4,6 +4,7 @@ import {
   estimateHistoryTokens,
   estimateTokens,
   trimHistoryToBudget,
+  historyBudgetFor,
 } from '../src/lib/common/history-guard';
 
 function buildMessages(count: number, charsPerMessage: number) {
@@ -57,5 +58,16 @@ describe('role-aware head after trimming (review #386)', () => {
     if (result.length > 1) {
       expect(result[0].role).toBe('user')
     }
+  })
+})
+
+describe('model-window budgets (review #386 round 3)', () => {
+  it('derives the budget from the model real context window, capped at 32k', () => {
+    // a 1M-window model gets the full 32k system cap
+    expect(historyBudgetFor('gpt-4.1')).toBe(32000)
+    // a 2048-window unknown model gets ~1861 (window / 1.1), never the full 32k
+    expect(historyBudgetFor('unknown-model')).toBe(1861)
+    // budgets never drop below the 1000 floor
+    expect(historyBudgetFor('tiny-model')).toBeGreaterThanOrEqual(1000)
   })
 })

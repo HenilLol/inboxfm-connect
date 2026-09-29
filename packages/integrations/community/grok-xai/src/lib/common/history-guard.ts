@@ -8,6 +8,38 @@
 // budget (~4 chars/token estimate, 32k default), in addition to the count cap.
 export const HISTORY_TOKEN_BUDGET = 32000;
 
+// Context windows for the xAI models this piece's deployments run (review #386,
+// mirroring the openai sibling's table conventions): grok-4 carries a 1M-token
+// window, the beta grok-3 line 256k, older fast/mini 128k. Unknown models keep
+// the conservative 2048 fallback so unresolved models never over-admit history.
+export const modelTokenLimit = (model: string): number => {
+  switch (model) {
+    case 'grok-4':
+    case 'grok-4-fast':
+    case 'grok-4-1':
+    case 'grok-4.1':
+      return 1000000;
+    case 'grok-3-beta':
+    case 'grok-3-fast-beta':
+    case 'grok-3-mini-beta':
+    case 'grok-3.1':
+    case 'grok-3.2':
+      return 256000;
+    case 'grok-2-image-1212':
+    case 'grok-2-vision-1212':
+    case 'grok-2-1212':
+      return 128000;
+    default:
+      return 2048;
+  }
+};
+
+// Window-aware budget: the 32k system cap still bounds the stored history, but
+// models with smaller real windows get a tighter budget so the guard trims to
+// what the model can actually accept (review #386).
+export const historyBudgetFor = (model: string): number =>
+  Math.min(HISTORY_TOKEN_BUDGET, Math.max(1000, (modelTokenLimit(model) / 1.1) | 0));
+
 export const estimateTokens = (message: { content?: unknown }): number => {
   const text =
     typeof message?.content === 'string'
