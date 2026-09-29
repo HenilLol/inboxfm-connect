@@ -72,3 +72,14 @@ describe('role-aware head after trimming (review #386)', () => {
     }
   })
 })
+
+describe('model-first passthrough (review #386 round 3)', () => {
+  it('passes an in-budget model-first history through untouched (non-blocking round 3)', () => {
+    const messages = [
+      { role: 'model', content: 'x'.repeat(100) },
+      ...buildMessages(3, 40),
+    ]
+    const result = trimHistoryToBudget(messages, 10_000)
+    expect(result).toEqual(messages)
+  })
+})

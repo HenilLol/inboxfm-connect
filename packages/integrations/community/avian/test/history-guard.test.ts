@@ -71,3 +71,14 @@ describe('model-window budgets (review #386 round 3)', () => {
     expect(historyBudgetFor('tiny-model')).toBeGreaterThanOrEqual(1000)
   })
 })
+
+describe('model-first passthrough (review #386 round 3)', () => {
+  it('passes an in-budget model-first history through untouched (non-blocking round 3)', () => {
+    const messages = [
+      { role: 'model', content: 'x'.repeat(100) },
+      ...buildMessages(3, 40),
+    ]
+    const result = trimHistoryToBudget(messages, 10_000)
+    expect(result).toEqual(messages)
+  })
+})

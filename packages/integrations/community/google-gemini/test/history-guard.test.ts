@@ -102,3 +102,16 @@ describe('role-aware head after trimming (review #386)', () => {
     }
   })
 })
+
+describe('model-first passthrough (review #386 round 3)', () => {
+  it('passes an in-budget model-first history through untouched (non-blocking round 3)', () => {
+    // Gemini accepts model-first sequencing; a small history that legitimately
+    // starts with a model turn must not lose its head when nothing was trimmed.
+    const messages = [
+      { role: 'model', content: 'x'.repeat(100) },
+      ...buildMessages(3, 40),
+    ]
+    const result = trimHistoryToBudget(messages, 10_000)
+    expect(result).toEqual(messages)
+  })
+})

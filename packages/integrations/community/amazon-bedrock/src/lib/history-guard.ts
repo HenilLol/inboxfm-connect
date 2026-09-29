@@ -29,21 +29,28 @@ export const trimHistoryToBudget = <T>(
   budget: number = HISTORY_TOKEN_BUDGET
 ): T[] => {
   let current = [...messages];
+  let trimmed = false;
   while (
     current.length > 1 &&
     estimateHistoryTokens(current as unknown[]) > budget
   ) {
     current = current.slice(Math.max(1, Math.round(current.length * 0.1)));
+    trimmed = true;
   }
   // Front-trimming can strand an assistant/model turn at the head; providers
   // that enforce user-first sequencing (OpenAI-compatible APIs) reject the
-  // next request. Drop leading non-user turns so the head is a user turn
-  // again — keep at least one message whatever happens (review #386).
-  while (
-    current.length > 1 &&
-    (current[0] as { role?: unknown }).role !== 'user'
-  ) {
-    current = current.slice(1);
+  // next request. Only histories the budget loop actually trimmed get the
+  // head-fix — an in-budget history that legitimately starts with a model
+  // turn (Gemini accepts model-first) is passed through untouched. Roles and
+  // the system prompt are not counted toward the budget; the /1.1 headroom
+  // absorbs them on small windows and the 32k cap covers large ones.
+  if (trimmed) {
+    while (
+      current.length > 1 &&
+      (current[0] as { role?: unknown }).role !== 'user'
+    ) {
+      current = current.slice(1);
+    }
   }
   return current;
 };
