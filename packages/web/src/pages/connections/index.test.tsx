@@ -200,4 +200,53 @@ describe('Connections page', () => {
     expect(text).not.toContain('client_secret')
     expect(text).not.toContain('refresh_token')
   }, 15000)
+
+  it('renders pagination controls and advances page when next cursor is available', async () => {
+    stubApi([
+      {
+        match: LIST_MATCH,
+        respond: (url) => {
+          const cursor = url.searchParams.get('cursor')
+          if (cursor === 'cursor_2') {
+            return {
+              status: 200,
+              body: {
+                data: [slackConnection('conn_2', 'VedLabs Workspace')],
+                previous: 'cursor_1',
+                next: null,
+              },
+            }
+          }
+          return {
+            status: 200,
+            body: {
+              data: [githubConnection('conn_1', 'Mihir GitHub')],
+              previous: null,
+              next: 'cursor_2',
+            },
+          }
+        },
+      },
+      {
+        match: (url) => url.pathname === '/api/v1/integrations',
+        respond: () => ({
+          status: 200,
+          body: seekPage([githubSummary(), slackSummary()]),
+        }),
+      },
+    ])
+
+    const container = renderConnections()
+    await waitFor(() => container.textContent?.includes('Mihir GitHub') === true)
+
+    const nextButton = container.querySelector<HTMLButtonElement>('button[aria-label="Next page"]')
+    expect(nextButton).not.toBeNull()
+    expect(nextButton?.disabled).toBe(false)
+
+    await act(async () => {
+      nextButton?.click()
+    })
+
+    await waitFor(() => container.textContent?.includes('VedLabs Workspace') === true)
+  }, 15000)
 })

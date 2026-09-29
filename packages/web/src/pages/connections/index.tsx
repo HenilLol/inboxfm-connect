@@ -17,6 +17,7 @@ import { connectionLinks } from '@/lib/utils/connection-links'
 import { connectionFormat } from '@/lib/utils/connection-format'
 
 const COLUMNS = ['Integration', 'Connection name', 'External user', 'Auth type', 'Status', 'Created', 'Actions'] as const
+const PAGE_SIZE = 20
 
 function usePieceLookup() {
   const { data: pieces } = useIntegrations()
@@ -42,11 +43,28 @@ function ListSkeleton() {
 export default function ConnectionsPage() {
   const navigate = useNavigate()
   const pieceLookup = usePieceLookup()
-  const { data, isLoading, isError, refetch } = useConnectionsQuery({ limit: 100 })
+  const [cursor, setCursor] = useState<string | undefined>(undefined)
+  const [previousCursors, setPreviousCursors] = useState<string[]>([])
+  const { data, isLoading, isError, refetch } = useConnectionsQuery({ limit: PAGE_SIZE, cursor })
   const deleteConnection = useDeleteConnection()
   const [deleteTarget, setDeleteTarget] = useState<AppConnection | null>(null)
 
   const connections = data?.data ?? []
+
+  const handleNext = () => {
+    if (data?.next) {
+      setPreviousCursors((prev) => [...prev, cursor ?? ''])
+      setCursor(data.next)
+    }
+  }
+
+  const handlePrevious = () => {
+    if (previousCursors.length > 0) {
+      const prevCursor = previousCursors[previousCursors.length - 1]
+      setPreviousCursors((prev) => prev.slice(0, -1))
+      setCursor(prevCursor || undefined)
+    }
+  }
 
   const handleDelete = () => {
     if (!deleteTarget) return
@@ -93,7 +111,7 @@ export default function ConnectionsPage() {
           description="The connection list could not be loaded. Check that you are signed in and try again."
           onRetry={() => void refetch()}
         />
-      ) : connections.length === 0 ? (
+      ) : connections.length === 0 && previousCursors.length === 0 ? (
         <EmptyState
           icon={KeyRound}
           title="No connections yet"
@@ -187,6 +205,34 @@ export default function ConnectionsPage() {
               </tbody>
             </table>
           </div>
+
+          {(data?.next || previousCursors.length > 0) && (
+            <div className="flex items-center justify-between border-t border-border bg-muted/20 px-4 py-3 text-xs">
+              <span className="text-muted-foreground">
+                Showing {connections.length} connections
+              </span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="xs"
+                  disabled={previousCursors.length === 0}
+                  onClick={handlePrevious}
+                  aria-label="Previous page"
+                >
+                  Previous
+                </Button>
+                <Button
+                  variant="outline"
+                  size="xs"
+                  disabled={!data?.next}
+                  onClick={handleNext}
+                  aria-label="Next page"
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 
