@@ -1,11 +1,23 @@
-import { isNil, sanitizeObjectForPostgresql } from '@inboxfm-connect/core-utils'
+import { apId, isNil, sanitizeObjectForPostgresql } from '@inboxfm-connect/core-utils'
 import { CRITICAL_EXECUTION_EVENT_TYPES, ExecutionEvent, ExecutionEventType } from '@inboxfm-connect/shared'
+import { Mutex } from 'async-mutex'
 import { redisConnections } from '../database/redis-connections'
 import { pubsub } from '../helper/pubsub'
 
+const instanceId = apId()
 const memorySequences = new Map<string, number>()
 const memoryHistory = new Map<string, ExecutionEvent[]>()
 const memoryListeners = new Map<string, Set<(event: ExecutionEvent) => void>>()
+const executionSubscriptionMutexes = new Map<string, Mutex>()
+
+function getExecutionSubscriptionMutex(executionId: string): Mutex {
+    let mutex = executionSubscriptionMutexes.get(executionId)
+    if (isNil(mutex)) {
+        mutex = new Mutex()
+        executionSubscriptionMutexes.set(executionId, mutex)
+    }
+    return mutex
+}
 
 const MAX_HISTORY_EVENTS = 1000
 const EVENT_TTL_SECONDS = 3600
@@ -51,7 +63,10 @@ const executionEventService = {
 
         // Publish via Redis pubsub if available
         try {
-            await pubsub.publish(`execution:${executionId}:events`, JSON.stringify(event))
+            await pubsub.publish(`execution:${executionId}:events`, JSON.stringify({
+                publisherId: instanceId,
+                event,
+            }))
         }
         catch (err) {
             // Ignore pubsub failures when Redis is offline/unconfigured (e.g. unit test mode)
@@ -87,41 +102,56 @@ const executionEventService = {
         executionId: string
         listener: (event: ExecutionEvent) => void
     }): Promise<void> {
-        const isFirstListener = !memoryListeners.has(executionId) || memoryListeners.get(executionId)!.size === 0
+        const mutex = getExecutionSubscriptionMutex(executionId)
+        await mutex.runExclusive(async () => {
+            let listeners = memoryListeners.get(executionId)
+            if (isNil(listeners)) {
+                listeners = new Set()
+                memoryListeners.set(executionId, listeners)
+            }
+            const isFirstListener = listeners.size === 0
+            listeners.add(listener)
 
-        if (!memoryListeners.has(executionId)) {
-            memoryListeners.set(executionId, new Set())
-        }
-        memoryListeners.get(executionId)!.add(listener)
+            if (isFirstListener) {
+                try {
+                    await pubsub.subscribe(`execution:${executionId}:events`, (message) => {
+                        try {
+                            const parsed = JSON.parse(message)
+                            const isEnvelope = parsed && typeof parsed === 'object' && 'event' in parsed
+                            const publisherId = isEnvelope ? parsed.publisherId : null
+                            const candidate = isEnvelope ? parsed.event : parsed
+                            const validation = ExecutionEvent.safeParse(candidate)
+                            if (!validation.success) {
+                                return
+                            }
+                            const event = validation.data
 
-        // Only create one Redis subscription per execution; it fans out to all
-        // in-memory listeners so N connected clients share one pubsub channel.
-        if (isFirstListener) {
-            try {
-                await pubsub.subscribe(`execution:${executionId}:events`, (message) => {
-                    try {
-                        const event = JSON.parse(message) as ExecutionEvent
-                        const listeners = memoryListeners.get(executionId)
-                        if (!isNil(listeners)) {
-                            for (const cb of listeners) {
-                                try {
-                                    cb(event)
-                                }
-                                catch (_) {
-                                    // Ignore individual listener errors
+                            if (publisherId === instanceId) {
+                                return
+                            }
+
+                            const activeListeners = memoryListeners.get(executionId)
+                            if (!isNil(activeListeners)) {
+                                for (const activeListener of activeListeners) {
+                                    try {
+                                        activeListener(event)
+                                    }
+                                    catch (err) {
+                                        // Ignore listener errors
+                                    }
                                 }
                             }
                         }
-                    }
-                    catch (err) {
-                        // Ignore malformed messages
-                    }
-                })
+                        catch (err) {
+                            // Ignore malformed messages
+                        }
+                    })
+                }
+                catch (err) {
+                    // Pubsub unavailable in offline unit tests
+                }
             }
-            catch (err) {
-                // Pubsub unavailable in offline unit tests
-            }
-        }
+        })
     },
 
     async unsubscribe({
@@ -129,15 +159,27 @@ const executionEventService = {
         listener,
     }: {
         executionId: string
-        listener: (event: ExecutionEvent) => void
+        listener?: (event: ExecutionEvent) => void
     }): Promise<void> {
-        const listeners = memoryListeners.get(executionId)
-        if (!isNil(listeners)) {
-            listeners.delete(listener)
-            if (listeners.size === 0) {
+        const mutex = getExecutionSubscriptionMutex(executionId)
+        await mutex.runExclusive(async () => {
+            if (!isNil(listener)) {
+                const listeners = memoryListeners.get(executionId)
+                if (!isNil(listeners)) {
+                    listeners.delete(listener)
+                    if (listeners.size === 0) {
+                        memoryListeners.delete(executionId)
+                        try {
+                            await pubsub.unsubscribe(`execution:${executionId}:events`)
+                        }
+                        catch (err) {
+                            // Ignore pubsub failures
+                        }
+                    }
+                }
+            }
+            else {
                 memoryListeners.delete(executionId)
-                // Tear down the shared Redis subscription only when the last
-                // client disconnects so other viewers keep receiving events.
                 try {
                     await pubsub.unsubscribe(`execution:${executionId}:events`)
                 }
@@ -145,7 +187,7 @@ const executionEventService = {
                     // Ignore pubsub failures
                 }
             }
-        }
+        })
     },
 
     async nextSequence({ executionId }: { executionId: string }): Promise<number> {

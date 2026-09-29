@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+ï»¿import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ExecutionEvent } from '@inboxfm-connect/shared'
 
 vi.mock(
     '../../../../src/app/helper/pubsub',
@@ -19,9 +20,9 @@ vi.mock(
 import { pubsub } from '../../../../src/app/helper/pubsub'
 import { executionEventService } from '../../../../src/app/execution/execution-event.service'
 
-describe('executionEventService — SSE listener isolation (issue #158)', () => {
-    let listenerA: (e: any) => void
-    let listenerB: (e: any) => void
+describe('executionEventService - SSE listener isolation (issue #158)', () => {
+    let listenerA: (e: ExecutionEvent) => void
+    let listenerB: (e: ExecutionEvent) => void
 
     beforeEach(() => {
         listenerA = vi.fn()
@@ -65,6 +66,6 @@ describe('executionEventService — SSE listener isolation (issue #158)', () => {
 
         await executionEventService.unsubscribe({ executionId: execId, listener: listenerB })
         expect(pubsub.unsubscribe).toHaveBeenCalledTimes(1)
-        expect(pubsub.unsubscribe).toHaveBeenCalledWith(`execution:${execId}:events`)
+        expect(pubsub.unsubscribe).toHaveBeenCalledWith(execution::events)
     })
 })

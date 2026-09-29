@@ -169,6 +169,7 @@ console.log(result);`
                 size="icon-xs"
                 variant="outline"
                 onClick={() => copySnippet(restSnippet, 'REST')}
+                data-testid="copy-rest-snippet"
                 className="absolute top-5 right-5"
               >
                 {copiedKey === 'REST' ? (
