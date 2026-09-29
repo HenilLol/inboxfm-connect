@@ -29,6 +29,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
     await teardownTestEnvironment()
+    // Restore the process env for later suites in the same worker (codeant finding
+    // on #353): without this, every subsequent test inherits the test-only limit of 3
+    // and its own ingress assertions can fail for the wrong reason.
+    delete process.env['AP_PUBLIC_INGRESS_RATE_LIMITER_MAX_REQUESTS']
+    delete process.env['AP_PUBLIC_INGRESS_RATE_LIMITER_WINDOW_SECONDS']
 })
 
 function stubEngineRunHook(output: unknown): void {

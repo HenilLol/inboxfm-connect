@@ -42,17 +42,32 @@ function extractBindingId(url: string): string | null {
 // atomic, EXPIRE is only set on the window's first request, so a window can rarely
 // run very slightly long — acceptable for a rate limit, and needs no infra beyond
 // the ioredis connection already used for BullMQ/distributedLock.
-async function assertWithinPublicIngressLimit({ bindingId, clientIp, log }: { bindingId: string, clientIp: string, log: FastifyBaseLogger }): Promise<void> {
+async function assertWithinPublicIngressLimit({ bindingId, clientIp, log }: { bindingId: string, clientIp: string | undefined, log: FastifyBaseLogger }): Promise<void> {
     const enabled = system.getBoolean(AppSystemProp.PUBLIC_INGRESS_RATE_LIMITER_ENABLED) ?? true
     if (!enabled) {
         return
     }
-    const maxRequests = system.getNumber(AppSystemProp.PUBLIC_INGRESS_RATE_LIMITER_MAX_REQUESTS) ?? DEFAULT_MAX_REQUESTS
-    const windowSeconds = system.getNumber(AppSystemProp.PUBLIC_INGRESS_RATE_LIMITER_WINDOW_SECONDS) ?? DEFAULT_WINDOW_SECONDS
+    // Semantic clamps (codeant findings on #353): system props are plain numbers, so
+    // a negative/zero/malformed MAX_REQUESTS would reject every request (429 across
+    // the board) and a zero/negative WINDOW_SECONDS would divide to Infinity / a
+    // non-expiring or instantly-expiring bucket. Fall back to the documented defaults
+    // instead of letting a bad config take the ingress down or silently unlimit it.
+    const rawMax = system.getNumber(AppSystemProp.PUBLIC_INGRESS_RATE_LIMITER_MAX_REQUESTS)
+    const maxRequests = Number.isFinite(rawMax) && rawMax! > 0 ? rawMax! : DEFAULT_MAX_REQUESTS
+    const rawWindow = system.getNumber(AppSystemProp.PUBLIC_INGRESS_RATE_LIMITER_WINDOW_SECONDS)
+    const windowSeconds = Number.isFinite(rawWindow) && rawWindow! > 0 ? rawWindow! : DEFAULT_WINDOW_SECONDS
 
     const redis = await redisConnections.useExisting()
     const windowStart = Math.floor(Date.now() / 1000 / windowSeconds)
-    const key = `${PUBLIC_INGRESS_RATE_LIMIT_KEY_PREFIX}:${bindingId}:${clientIp}:${windowStart}`
+    // When the configured CLIENT_REAL_IP_HEADER is missing on the request, there is
+    // no address to bucket by: use an explicit shared label (not the string
+    // 'undefined', which would collide with a literal IP) and warn so the operator
+    // can fix the header config (codeant finding on #353).
+    const effectiveClientIp = clientIp ?? UNKNOWN_CLIENT_IP_LABEL
+    const key = `${PUBLIC_INGRESS_RATE_LIMIT_KEY_PREFIX}:${bindingId}:${effectiveClientIp}:${windowStart}`
+    if (clientIp === undefined) {
+        log.warn({ bindingId }, 'Public ingress rate limiter: client IP unavailable - requests share one per-binding bucket until CLIENT_REAL_IP_HEADER is configured correctly')
+    }
     const requestCount = await redis.incr(key)
     if (requestCount === 1) {
         await redis.expire(key, windowSeconds)
@@ -72,5 +87,6 @@ async function assertWithinPublicIngressLimit({ bindingId, clientIp, log }: { bi
 }
 
 const PUBLIC_INGRESS_RATE_LIMIT_KEY_PREFIX = 'public-ingress-rate-limit'
+const UNKNOWN_CLIENT_IP_LABEL = 'unknown-client-ip'
 const DEFAULT_MAX_REQUESTS = 30
 const DEFAULT_WINDOW_SECONDS = 60
