@@ -238,7 +238,6 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     await app.register(oidcModule)
     await aiProviderService(app.log).setup()
     await app.register(aiProviderModule)
-    await app.register(licenseKeysModule)
     // await app.register(tablesModule)
     // await app.register(knowledgeBaseModule)
     await app.register(userModule)
@@ -280,6 +279,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     }, 'Activepieces Edition')
     switch (edition) {
         case ApEdition.CLOUD:
+            await app.register(licenseKeysModule)
             await app.register(adminPlatformModule)
             await app.register(appCredentialModule)
             await app.register(connectionKeyModule)
@@ -314,6 +314,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
             systemJobHandlers.registerJobHandler(SystemJobName.HARD_DELETE_PLATFORM, (data) => platformBackgroundJobs(app.log).hardDeletePlatformHandler(data))
             break
         case ApEdition.ENTERPRISE:
+            await app.register(licenseKeysModule)
             await platformAiCreditsService(app.log).init()
             await app.register(platformPlanModule)
             await app.register(platformProjectModule)
