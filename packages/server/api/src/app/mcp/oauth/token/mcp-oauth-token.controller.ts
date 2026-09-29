@@ -1,6 +1,6 @@
 import { isNil } from '@inboxfm-connect/core-utils'
 import { McpOAuthClient } from '@inboxfm-connect/shared'
-import { FastifyReply } from 'fastify'
+import { FastifyBaseLogger, FastifyReply } from 'fastify'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { z } from 'zod'
 import { securityAccess } from '../../../core/security/authorization/fastify-security'
@@ -18,7 +18,7 @@ export const mcpOAuthTokenController: FastifyPluginAsyncZod = async (app) => {
                 return await handleAuthorizationCode(req.body, reply)
             }
             if (grant_type === 'refresh_token') {
-                return await handleRefreshToken(req.body, reply)
+                return await handleRefreshToken(req.body, reply, req.log)
             }
             return await reply.status(400).send({ error: 'unsupported_grant_type' })
         }
@@ -104,7 +104,7 @@ async function handleAuthorizationCode(body: TokenRequestBody, reply: FastifyRep
     await reply.status(200).send(tokens)
 }
 
-async function handleRefreshToken(body: TokenRequestBody, reply: FastifyReply): Promise<void> {
+async function handleRefreshToken(body: TokenRequestBody, reply: FastifyReply, log: FastifyBaseLogger): Promise<void> {
     const { refresh_token } = body
     if (!refresh_token) {
         await reply.status(400).send({ error: 'invalid_request', error_description: 'Missing refresh_token' })
@@ -118,6 +118,7 @@ async function handleRefreshToken(body: TokenRequestBody, reply: FastifyReply): 
     const tokens = await mcpOAuthTokenService.refreshAccessToken({
         refreshToken: refresh_token,
         clientId: client.clientId,
+        log,
     })
 
     await reply.status(200).send(tokens)
