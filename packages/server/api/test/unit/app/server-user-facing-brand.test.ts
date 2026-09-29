@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 
 // Pins the fork's user-facing brand contract: every surface an end user, IdP admin,
 // or external MCP operator sees must say Inboxfm Connect — never the upstream brand.
-// Deliberately does not touch URLs (docs/CDN hosts still resolve upstream) or
-// security-sensitive identifiers (JWT issuer, log service names), which are
-// intentionally out of scope for the rebrand.
+// The scan checks every occurrence of the brand token per line (any quoting style),
+// but only flags occurrences that can reach a user: standalone brand words inside
+// string/template literals. Sanctioned, non-user-facing uses are excluded:
+//   - longer identifiers (ActivepiecesError, activepiecesTools) — code, not text
+//   - the AIProviderName.ACTIVEPIECES enum key (lookups key on the enum)
+//   - URL hosts and the MCP resource URI scheme (docs/CDN hosts still resolve upstream)
+//   - the 'activepieces-validator' log service name (security-sensitive identifier)
 describe('User-facing brand residue (fork rebrand sweep)', () => {
     it('no user-facing string in the audited files still says the upstream brand', async () => {
         const { readFile } = await import('node:fs/promises')
@@ -13,6 +17,9 @@ describe('User-facing brand residue (fork rebrand sweep)', () => {
             'src/app/app.ts',
             'src/app/flags/theme.ts',
             'src/app/mcp/mcp-server-builder.ts',
+            'src/app/mcp/tools/ap-setup-guide.ts',
+            'src/app/mcp/tools/ap-validate-step-config.ts',
+            'src/app/mcp/tools/piece-expertise.ts',
             'src/app/agents/mcp-tool-validator.ts',
             'src/app/ai/ai-provider-service.ts',
             'src/app/ai/providers/index.ts',
@@ -23,9 +30,32 @@ describe('User-facing brand residue (fork rebrand sweep)', () => {
         ]
         for (const file of auditedFiles) {
             const content = await readFile(resolve(__dirname, '../../..', file), 'utf-8')
-            expect(content, file).not.toContain('\'Activepieces\'')
-            expect(content, file).not.toContain('\'activepieces-validator\'')
-            expect(content, file).not.toContain('entityID: \'Activepieces\'')
+            const violations: Array<{ line: string, no: number }> = []
+            const lines = content.split('\n')
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim()
+                if (line.startsWith('//') || line.startsWith('*') || line.startsWith('/*')) continue
+                const re = /activepieces/gi
+                let m: RegExpExecArray | null
+                while ((m = re.exec(line)) !== null) {
+                    const end = m.index + m[0].length
+                    const nextChar = line[end]
+                    // part of a longer identifier — code, not user-facing text
+                    if (nextChar !== undefined && /[A-Za-z0-9_$]/.test(nextChar)) continue
+                    // the provider enum key
+                    if (m[0] === 'ACTIVEPIECES') continue
+                    const occurrence = line.slice(m.index, end + 3)
+                    // URL hosts and the MCP resource URI scheme
+                    if (/activepieces:\/\//i.test(occurrence) || /activepieces\./i.test(occurrence)) continue
+                    const prev = m.index > 0 ? line[m.index - 1] : ''
+                    if (prev === '.' || prev === '/') continue
+                    // log service name — deliberately retained identifier
+                    if (line.includes('activepieces-validator')) continue
+                    violations.push({ line, no: i + 1 })
+                    break
+                }
+            }
+            expect(violations, `${file}: ${JSON.stringify(violations)}`).toEqual([])
         }
     })
 

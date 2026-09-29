@@ -9,7 +9,7 @@ import { apSetProjectContextTool } from './tools/ap-set-project-context'
 
 const PLATFORM_LEVEL_TOOL_SET = new Set(PLATFORM_LEVEL_TOOL_NAMES)
 
-const MCP_SERVER_INSTRUCTIONS = `## Activepieces MCP Server
+const MCP_SERVER_INSTRUCTIONS = `## Inboxfm Connect MCP Server
 
 ### Workflow
 1. Discover: ap_research_pieces, ap_list_connections, ap_list_ai_models
