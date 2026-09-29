@@ -11,7 +11,7 @@ import {
 } from '@inboxfm-connect/shared'
 import { AxiosError, AxiosResponse } from 'axios'
 import { FastifyBaseLogger } from 'fastify'
-import { ArrayContains } from 'typeorm'
+import { ArrayContains, In } from 'typeorm'
 import { appConnectionService, appConnectionsRepo } from '../app-connection/app-connection-service/app-connection-service'
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -67,6 +67,23 @@ function redactSecrets(msg: string): string {
         .replace(/(access_token|client_secret|api_key|secret|token)["']?\s*[:=]\s*["']?[^"'\s,]+/gi, '$1=[REDACTED]')
 }
 
+function getMatchingPieceNames(provider: string, providerConfig: (typeof ALLOWED_PROXY_PROVIDERS)[string]): string[] {
+    const names = new Set<string>()
+    const p = provider.toLowerCase()
+    names.add(p)
+    names.add(`piece-${p}`)
+    names.add(`@inboxfm-connect/piece-${p}`)
+    if (providerConfig.allowedPieceNames) {
+        for (const piece of providerConfig.allowedPieceNames) {
+            const pieceLower = piece.toLowerCase()
+            names.add(pieceLower)
+            names.add(`piece-${pieceLower}`)
+            names.add(`@inboxfm-connect/piece-${pieceLower}`)
+        }
+    }
+    return Array.from(names)
+}
+
 export const connectProxyService = (log: FastifyBaseLogger) => {
     return {
         async execute(request: ConnectProxyRequest): Promise<ConnectProxyResponse> {
@@ -81,9 +98,10 @@ export const connectProxyService = (log: FastifyBaseLogger) => {
                 })
             }
 
-            // 1. Resolve and authenticate connection
+            // 1. Resolve and authenticate connection (scoped by provider pieceName to avoid selecting arbitrary connection)
+            const allowedPieces = getMatchingPieceNames(request.provider, providerConfig)
             const connection = await appConnectionsRepo().findOneBy({
-                ...(request.connectionId ? { id: request.connectionId } : {}),
+                ...(request.connectionId ? { id: request.connectionId } : { pieceName: In(allowedPieces) }),
                 projectIds: ArrayContains([request.projectId]),
                 externalId: request.externalUserId,
                 status: AppConnectionStatus.ACTIVE,
@@ -125,10 +143,11 @@ export const connectProxyService = (log: FastifyBaseLogger) => {
             }
 
             // Verify provider match
-            const normalizedPiece = connection.pieceName.replace(/^@inboxfm-connect\/piece-/, '')
-            if (normalizedPiece.toLowerCase() !== request.provider.toLowerCase()) {
+            const normalizedPiece = connection.pieceName.toLowerCase().replace(/^@inboxfm-connect\/piece-/, '').replace(/^piece-/, '')
+            const isMatch = allowedPieces.some(ap => ap.toLowerCase() === connection!.pieceName.toLowerCase() || ap.toLowerCase() === normalizedPiece)
+            if (!isMatch) {
                 throw new ActivepiecesError({
-                    code: ErrorCode.VALIDATION,
+                    code: ErrorCode.AUTHORIZATION,
                     params: {
                         code: ConnectProxyErrorCode.PROVIDER_MISMATCH,
                         message: `Connection integration "${connection.pieceName}" does not match target proxy provider "${request.provider}".`,
@@ -136,36 +155,7 @@ export const connectProxyService = (log: FastifyBaseLogger) => {
                 })
             }
 
-            // 2. Validate path and build target URL
-            const cleanPath = request.path.trim()
-            if (cleanPath.startsWith('http://') || cleanPath.startsWith('https://') || cleanPath.startsWith('//') || cleanPath.includes('/../') || cleanPath === '..') {
-                throw new ActivepiecesError({
-                    code: ErrorCode.VALIDATION,
-                    params: {
-                        code: ConnectProxyErrorCode.INVALID_PATH,
-                        message: 'Path must be relative and cannot contain URL schemes or directory traversal.',
-                    },
-                })
-            }
-
-            let baseUrl = providerConfig.baseUrl
-            if (providerConfig.supportsSubdomain) {
-                const subdomain = request.subdomain || (connection.value as Record<string, unknown>)?.['subdomain']
-                if (!subdomain || (providerConfig.subdomainRegex && !providerConfig.subdomainRegex.test(String(subdomain)))) {
-                    throw new ActivepiecesError({
-                        code: ErrorCode.VALIDATION,
-                        params: {
-                            code: ConnectProxyErrorCode.INVALID_PATH,
-                            message: `Provider "${request.provider}" requires a valid subdomain matching ${providerConfig.subdomainRegex}.`,
-                        },
-                    })
-                }
-                baseUrl = baseUrl.replace('{subdomain}', String(subdomain))
-            }
-
-            const targetUrl = new URL(cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`)
-
-            // 3. Decrypt and refresh credentials
+            // 2. Decrypt and refresh credentials before URL resolution (subdomains may reside in decrypted OAuth values)
             const decryptedConnection = await appConnectionService(log).decryptAndRefreshConnection(
                 connection,
                 request.projectId,
@@ -196,6 +186,63 @@ export const connectProxyService = (log: FastifyBaseLogger) => {
                 })
             }
 
+            // 3. Validate path and build target URL (strictly reject schemes, backslashes, control characters, traversal)
+            const rawPath = request.path
+            const cleanPath = rawPath.trim()
+            if (
+                /[\x00-\x1F\x7F]/.test(rawPath) ||
+                rawPath.includes('\\') ||
+                cleanPath.startsWith('http://') ||
+                cleanPath.startsWith('https://') ||
+                cleanPath.startsWith('//') ||
+                cleanPath.startsWith('\\') ||
+                cleanPath.includes('/../') ||
+                cleanPath.includes('/..\\') ||
+                cleanPath.startsWith('../') ||
+                cleanPath.endsWith('/..') ||
+                cleanPath === '..'
+            ) {
+                throw new ActivepiecesError({
+                    code: ErrorCode.VALIDATION,
+                    params: {
+                        code: ConnectProxyErrorCode.INVALID_PATH,
+                        message: 'Path must be relative and cannot contain URL schemes, backslashes, control characters, or directory traversal.',
+                    },
+                })
+            }
+
+            let baseUrl = providerConfig.baseUrl
+            if (providerConfig.supportsSubdomain) {
+                const decryptedValue = (decryptedConnection?.value as Record<string, unknown>) ?? {}
+                const rawValue = (connection.value as Record<string, unknown>) ?? {}
+                const subdomain = request.subdomain || decryptedValue['subdomain'] || rawValue['subdomain']
+                if (!subdomain || (providerConfig.subdomainRegex && !providerConfig.subdomainRegex.test(String(subdomain)))) {
+                    throw new ActivepiecesError({
+                        code: ErrorCode.VALIDATION,
+                        params: {
+                            code: ConnectProxyErrorCode.INVALID_PATH,
+                            message: `Provider "${request.provider}" requires a valid subdomain matching ${providerConfig.subdomainRegex}.`,
+                        },
+                    })
+                }
+                baseUrl = baseUrl.replace('{subdomain}', String(subdomain))
+            }
+
+            const expectedOrigin = new URL(baseUrl).origin
+            const relativePath = cleanPath.startsWith('/') ? cleanPath.slice(1) : cleanPath
+            const baseWithSlash = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+            const targetUrl = new URL(relativePath, baseWithSlash)
+
+            if (targetUrl.origin !== expectedOrigin) {
+                throw new ActivepiecesError({
+                    code: ErrorCode.VALIDATION,
+                    params: {
+                        code: ConnectProxyErrorCode.INVALID_PATH,
+                        message: `Target origin "${targetUrl.origin}" does not match provider origin "${expectedOrigin}".`,
+                    },
+                })
+            }
+
             // 4. Construct outbound request headers (caller cannot override authorization)
             const outboundHeaders: Record<string, string> = {}
             for (const [key, value] of Object.entries(providerConfig.defaultHeaders ?? {})) {
@@ -207,6 +254,10 @@ export const connectProxyService = (log: FastifyBaseLogger) => {
                 if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase()) && typeof value === 'string') {
                     outboundHeaders[key] = value
                 }
+            }
+
+            if (request.idempotencyKey) {
+                outboundHeaders['Idempotency-Key'] = request.idempotencyKey
             }
 
             // Inject credentials

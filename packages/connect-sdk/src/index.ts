@@ -119,6 +119,7 @@ export class InboxFM {
                 idempotencyKey,
             },
             idempotencyKey,
+            timeoutMs,
             ...requestOptions,
         })
     }

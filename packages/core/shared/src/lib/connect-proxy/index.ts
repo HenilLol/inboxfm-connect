@@ -22,6 +22,7 @@ export type SupportedProxyProvider = {
     defaultHeaders?: Record<string, string>
     supportsSubdomain?: boolean
     subdomainRegex?: RegExp
+    allowedPieceNames?: string[]
 }
 
 export const ALLOWED_PROXY_PROVIDERS: Record<string, SupportedProxyProvider> = {
@@ -32,6 +33,7 @@ export const ALLOWED_PROXY_PROVIDERS: Record<string, SupportedProxyProvider> = {
         authType: 'bearer',
         authHeaderName: 'Authorization',
         authHeaderPrefix: 'Bearer ',
+        allowedPieceNames: ['slack'],
     },
     github: {
         provider: 'github',
@@ -40,6 +42,7 @@ export const ALLOWED_PROXY_PROVIDERS: Record<string, SupportedProxyProvider> = {
         authType: 'bearer',
         authHeaderName: 'Authorization',
         authHeaderPrefix: 'Bearer ',
+        allowedPieceNames: ['github'],
         defaultHeaders: {
             'User-Agent': 'InboxFM-Connect-Proxy/1.0',
             'Accept': 'application/vnd.github+json',
@@ -52,6 +55,7 @@ export const ALLOWED_PROXY_PROVIDERS: Record<string, SupportedProxyProvider> = {
         authType: 'bearer',
         authHeaderName: 'Authorization',
         authHeaderPrefix: 'Bearer ',
+        allowedPieceNames: ['notion'],
         defaultHeaders: {
             'Notion-Version': '2022-06-28',
         },
@@ -63,6 +67,7 @@ export const ALLOWED_PROXY_PROVIDERS: Record<string, SupportedProxyProvider> = {
         authType: 'bearer',
         authHeaderName: 'Authorization',
         authHeaderPrefix: 'Bearer ',
+        allowedPieceNames: ['hubspot'],
     },
     google: {
         provider: 'google',
@@ -71,6 +76,16 @@ export const ALLOWED_PROXY_PROVIDERS: Record<string, SupportedProxyProvider> = {
         authType: 'bearer',
         authHeaderName: 'Authorization',
         authHeaderPrefix: 'Bearer ',
+        allowedPieceNames: ['google', 'google-calendar', 'google_calendar', 'google-sheets', 'google-drive', 'google-docs'],
+    },
+    google_calendar: {
+        provider: 'google_calendar',
+        name: 'Google Calendar',
+        baseUrl: 'https://www.googleapis.com/calendar/v3',
+        authType: 'bearer',
+        authHeaderName: 'Authorization',
+        authHeaderPrefix: 'Bearer ',
+        allowedPieceNames: ['google-calendar', 'google_calendar', 'google'],
     },
     stripe: {
         provider: 'stripe',
@@ -104,6 +119,12 @@ export const ConnectProxyRequest = z.object({
         .min(1)
         .refine((p) => !p.startsWith('http://') && !p.startsWith('https://') && !p.startsWith('//'), {
             message: 'Path must be a relative path and cannot contain an absolute URL scheme',
+        })
+        .refine((p) => !p.includes('\\'), {
+            message: 'Path cannot contain backslashes',
+        })
+        .refine((p) => !/[\x00-\x1F\x7F]/.test(p), {
+            message: 'Path cannot contain control characters',
         })
         .refine((p) => !p.includes('/../') && !p.startsWith('../') && !p.endsWith('/..') && p !== '..', {
             message: 'Path cannot contain directory traversal elements ("..")',

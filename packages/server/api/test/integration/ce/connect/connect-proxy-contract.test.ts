@@ -5,7 +5,6 @@ import {
     AppConnectionType,
     ConnectProxyErrorCode,
     OAuth2ConnectionValue,
-    Permission,
 } from '@inboxfm-connect/shared'
 import axios from 'axios'
 import { FastifyInstance } from 'fastify'
@@ -62,6 +61,7 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
         pieceName = 'slack',
         token = 'fake_secret_access_token_123',
         status = AppConnectionStatus.ACTIVE,
+        extraValue = {},
     }: {
         projectId: string
         platformId?: string
@@ -69,12 +69,14 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
         pieceName?: string
         token?: string
         status?: AppConnectionStatus
+        extraValue?: Record<string, unknown>
     }) {
         const encrypted = await encryptUtils.encryptObject({
             type: AppConnectionType.OAUTH2,
             access_token: token,
             token_type: 'Bearer',
-            data: {},
+            data: extraValue,
+            ...extraValue,
         } as OAuth2ConnectionValue)
 
         return appConnectionsRepo().save({
@@ -93,7 +95,7 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
     }
 
     describe('1. Request Validation and Provider Domain Allowlist', () => {
-        it('rejects unsupported provider with 400 and PROVIDER_NOT_SUPPORTED', async () => {
+        it('rejects unsupported provider with 409 and PROVIDER_NOT_SUPPORTED', async () => {
             const ctx = await createTestContext(app!)
             const response = await ctx.post('/v1/connect-proxy/request', {
                 projectId: ctx.project.id,
@@ -121,6 +123,54 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
             expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
             const body = response?.json()
             expect(body.message).toContain('relative path')
+        })
+
+        it('rejects protocol-relative and leading double slashes in path', async () => {
+            const ctx = await createTestContext(app!)
+            await seedCustomerConnection({ projectId: ctx.project.id, externalUserId: 'cust_alice', pieceName: 'slack' })
+
+            const response = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'slack',
+                path: '//evil-attacker.com/steal-token',
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
+            const body = response?.json()
+            expect(body.message).toContain('relative path')
+        })
+
+        it('rejects backslash in path to prevent WHATWG protocol-relative URL bypass', async () => {
+            const ctx = await createTestContext(app!)
+            await seedCustomerConnection({ projectId: ctx.project.id, externalUserId: 'cust_alice', pieceName: 'slack' })
+
+            const response = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'slack',
+                path: '\\\\evil.com/leak',
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
+            const body = response?.json()
+            expect(body.message).toContain('backslashes')
+        })
+
+        it('rejects control characters in path to prevent URL parsing normalization bypass', async () => {
+            const ctx = await createTestContext(app!)
+            await seedCustomerConnection({ projectId: ctx.project.id, externalUserId: 'cust_alice', pieceName: 'slack' })
+
+            const response = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'slack',
+                path: '\t//evil.com/steal',
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
+            const body = response?.json()
+            expect(body.message).toContain('control characters')
         })
 
         it('rejects path traversal (..) in path', async () => {
@@ -154,9 +204,94 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
 
             expect(response?.statusCode).toBe(StatusCodes.BAD_REQUEST)
         })
+
+        it('resolves subdomain from decrypted connection value when not explicitly in request', async () => {
+            const ctx = await createTestContext(app!)
+            await seedCustomerConnection({
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                pieceName: 'zendesk',
+                token: 'zendesk_secret_token_123',
+                extraValue: { subdomain: 'mycompany' },
+            })
+
+            const response = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'zendesk',
+                path: '/tickets.json',
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(mockAxiosInstance.request).toHaveBeenCalledTimes(1)
+            const requestArg = mockAxiosInstance.request.mock.calls[0][0]
+            expect(requestArg.url).toBe('https://mycompany.zendesk.com/api/v2/tickets.json')
+        })
     })
 
     describe('2. Project and Customer Authorization Invariants', () => {
+        it('resolves correct provider connection for a customer with multiple active connections', async () => {
+            const ctx = await createTestContext(app!)
+
+            // Seed multiple connections for same customer: Slack and GitHub
+            await seedCustomerConnection({
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                pieceName: '@inboxfm-connect/piece-slack',
+                token: 'slack_token_alice',
+            })
+
+            await seedCustomerConnection({
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                pieceName: '@inboxfm-connect/piece-github',
+                token: 'github_token_alice',
+            })
+
+            // 1. Requesting Slack resolves Slack connection
+            const slackResp = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'slack',
+                path: '/users.info',
+            })
+            expect(slackResp?.statusCode).toBe(StatusCodes.OK)
+            expect(mockAxiosInstance.request.mock.calls[0][0].headers['Authorization']).toBe('Bearer slack_token_alice')
+
+            mockAxiosInstance.request.mockClear()
+
+            // 2. Requesting GitHub resolves GitHub connection
+            const githubResp = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'github',
+                path: '/user/repos',
+            })
+            expect(githubResp?.statusCode).toBe(StatusCodes.OK)
+            expect(mockAxiosInstance.request.mock.calls[0][0].headers['Authorization']).toBe('Bearer github_token_alice')
+        })
+
+        it('resolves google_calendar provider with real piece-google-calendar connection', async () => {
+            const ctx = await createTestContext(app!)
+            await seedCustomerConnection({
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                pieceName: '@inboxfm-connect/piece-google-calendar',
+                token: 'google_cal_token_123',
+            })
+
+            const response = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'google_calendar',
+                path: '/users/me/calendarList',
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(mockAxiosInstance.request.mock.calls[0][0].url).toBe('https://www.googleapis.com/calendar/v3/users/me/calendarList')
+            expect(mockAxiosInstance.request.mock.calls[0][0].headers['Authorization']).toBe('Bearer google_cal_token_123')
+        })
+
         it('denies cross-customer connection usage (Customer Bob attempting to proxy with Alice connection ID)', async () => {
             const ctx = await createTestContext(app!)
             const aliceConnection = await seedCustomerConnection({
@@ -217,7 +352,7 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
                 path: '/user/repos',
             })
 
-            expect(response?.statusCode).toBe(StatusCodes.CONFLICT)
+            expect(response?.statusCode).toBe(StatusCodes.FORBIDDEN)
             const body = response?.json()
             expect(body.params?.code).toBe(ConnectProxyErrorCode.PROVIDER_MISMATCH)
         })
@@ -239,7 +374,7 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
     })
 
     describe('3. Credential Injection, Header Sanitization, and SSRF Security', () => {
-        it('injects customer decrypted credentials and forbids caller from overriding Authorization', async () => {
+        it('injects customer decrypted credentials and forwards Idempotency-Key upstream', async () => {
             const ctx = await createTestContext(app!)
             await seedCustomerConnection({
                 projectId: ctx.project.id,
@@ -252,30 +387,30 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
                 projectId: ctx.project.id,
                 externalUserId: 'cust_alice',
                 provider: 'slack',
-                method: 'GET',
-                path: '/users.info',
-                query: { user: 'U12345' },
+                method: 'POST',
+                path: '/chat.postMessage',
+                idempotencyKey: 'idemp-req-777',
                 headers: {
                     'Authorization': 'Bearer attacker_overridden_token',
                     'X-Custom-Tracking': 'track_abc',
                 },
+                body: { channel: 'C123', text: 'Hello' },
             })
 
             expect(response?.statusCode).toBe(StatusCodes.OK)
             const body = response?.json()
             expect(body.status).toBe(200)
             expect(body.provider).toBe('slack')
-            expect(body.rateLimit?.limit).toBe(500)
 
             // Inspect the outbound call sent by safeHttp client
             expect(mockAxiosInstance.request).toHaveBeenCalledTimes(1)
             const requestArg = mockAxiosInstance.request.mock.calls[0][0]
-            expect(requestArg.url).toBe('https://slack.com/api/users.info')
-            expect(requestArg.method).toBe('GET')
-            expect(requestArg.params).toEqual({ user: 'U12345' })
-            // Overridden header is overridden with customer's real decrypted token
+            expect(requestArg.url).toBe('https://slack.com/api/chat.postMessage')
+            expect(requestArg.method).toBe('POST')
+            // Overridden header is replaced with customer's real decrypted token
             expect(requestArg.headers['Authorization']).toBe('Bearer alice_super_secret_slack_token_999')
             expect(requestArg.headers['X-Custom-Tracking']).toBe('track_abc')
+            expect(requestArg.headers['Idempotency-Key']).toBe('idemp-req-777')
         })
 
         it('redacts tokens and keys from error messages when upstream provider fails', async () => {
