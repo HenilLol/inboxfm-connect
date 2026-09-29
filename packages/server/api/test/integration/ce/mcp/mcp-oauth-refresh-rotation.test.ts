@@ -76,6 +76,10 @@ describe('MCP OAuth refresh-token rotation', () => {
         expect(replayOld?.statusCode).toBe(StatusCodes.BAD_REQUEST)
         expect(replayOld?.json().error).toBe('invalid_grant')
 
+        // Reuse detection (#332): a detected replay means the token family may be
+        // compromised, so the entire lineage is revoked — the current (rotated)
+        // token dies with the replayed one and the client must re-authenticate.
+        // This supersedes the earlier availability-first behavior per RFC 6819 s5.2.2.3.
         const refreshTwo = await app?.inject({
             method: 'POST',
             url: '/token',
@@ -85,8 +89,8 @@ describe('MCP OAuth refresh-token rotation', () => {
                 refresh_token: rotated.refresh_token,
             },
         })
-        expect(refreshTwo?.statusCode).toBe(StatusCodes.OK)
-        expect(refreshTwo?.json().refresh_token).not.toBe(rotated.refresh_token)
+        expect(refreshTwo?.statusCode).toBe(StatusCodes.BAD_REQUEST)
+        expect(refreshTwo?.json().error).toBe('invalid_grant')
     })
 
     it('rejects a refresh presented by the wrong client and strands the stolen token', async () => {
@@ -132,8 +136,11 @@ describe('MCP OAuth refresh-token rotation', () => {
         const clientId = await registerClient('https://expired-test.example.com/callback')
         const rawRefreshToken = `expired-${'e'.repeat(50)}`
         const now = new Date().toISOString()
+        const expiredTokenId = apId()
         await db.save('mcp_oauth_token', {
-            id: apId(),
+            id: expiredTokenId,
+            previousRefreshToken: null,
+            familyId: expiredTokenId,
             refreshToken: cryptoUtils.hashSHA256(rawRefreshToken),
             clientId,
             userId: 'user-expired-1',
