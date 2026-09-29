@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiClient, ApiClientError } from './client'
+import { apiClient, ApiClient as ApiClientClass, ApiClientError } from './client'
 
 describe('ApiClient', () => {
   beforeEach(() => {
@@ -35,6 +35,19 @@ describe('ApiClient', () => {
     apiClient.setToken(null)
     apiClient.setProjectId(null)
 
+    expect(localStorage.getItem('ap-token')).toBeNull()
+    expect(localStorage.getItem('ap-project-id')).toBeNull()
+  })
+
+  it('purges a legacy localStorage credential on first load — fresh constructor (review #384)', () => {
+    // The user who upgrades and keeps working never signs out, so the
+    // constructor must remove the parked credential at first load.
+    localStorage.setItem('ap-token', 'stale_legacy_token')
+    localStorage.setItem('ap-project-id', 'stale_legacy_project')
+
+    const fresh = new ApiClientClass()
+
+    expect(fresh.getToken()).toBeNull()
     expect(localStorage.getItem('ap-token')).toBeNull()
     expect(localStorage.getItem('ap-project-id')).toBeNull()
   })

@@ -13,7 +13,7 @@ interface RequestOptions extends RequestInit {
   params?: Record<string, unknown>
 }
 
-class ApiClient {
+export class ApiClient {
   private baseUrl = '/api/v1'
   private token: string | null = null
   private projectId: string | null = null
@@ -28,6 +28,14 @@ class ApiClient {
     if (typeof sessionStorage !== 'undefined') {
       this.token = sessionStorage.getItem('ap-token')
       this.projectId = sessionStorage.getItem('ap-project-id')
+    }
+    // Purge credentials an older build parked in localStorage on first load,
+    // not just on explicit sign-out: the user who upgrades and keeps working
+    // never passes through setToken(null), so the parked 7-day JWT would
+    // otherwise stay world-readable until its natural expiry (review #384).
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('ap-token')
+      localStorage.removeItem('ap-project-id')
     }
   }
 
