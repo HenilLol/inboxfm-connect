@@ -18,6 +18,13 @@ export const errorHandler = async (
             void reply.header('Retry-After', String(error.error.params.retryAfterSeconds))
         }
 
+        // The public-ingress limiter returns the remaining seconds of its fixed
+        // window so the caller (and any well-behaved proxy) can back off exactly
+        // as long as needed instead of retrying into the same window (#351).
+        if (error.error.code === ErrorCode.PUBLIC_INGRESS_RATE_LIMIT_EXCEEDED) {
+            void reply.header('Retry-After', String(error.error.params.windowSeconds))
+        }
+
         await reply.status(statusCode).send({
             code: error.error.code,
             params: error.error.params,
