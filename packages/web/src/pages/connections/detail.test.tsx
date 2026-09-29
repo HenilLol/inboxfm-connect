@@ -284,4 +284,97 @@ describe('Connection detail page', () => {
     await waitFor(() => container.textContent?.includes('Token expired') === true)
     expect(container.textContent).toContain('Token expired')
   }, 15000)
+
+  /**
+   * Regression: the component instance is reused across a /connections/:id ->
+   * /connections/:otherId navigation (same route, new param), so testResult
+   * used to survive and paint the previous connection's verdict, timestamp and
+   * failure message next to the newly-loaded one.
+   */
+  it('clears the previous test result when the route param changes', async () => {
+    global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const raw = String(input)
+
+      if (init?.method === 'POST' && raw.includes('/test')) {
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            status: 'ERROR',
+            testedAt: new Date('2026-09-28T12:00:00Z').toISOString(),
+            message: 'Token expired',
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      if (raw.includes('/connections/conn_2')) {
+        return new Response(JSON.stringify(slackConnection('conn_2', 'Mihir Slack')), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (raw.includes('/connections/conn_1')) {
+        return new Response(JSON.stringify(githubConnection('conn_1', 'Mihir GitHub')), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      if (raw.includes('/integrations/')) {
+        return new Response(
+          JSON.stringify({
+            name: 'github',
+            displayName: 'GitHub',
+            logoUrl: '',
+            description: '',
+            version: '0.3.4',
+            auth: { type: 'OAUTH2' },
+            actions: {},
+            triggers: {},
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      }
+      return new Response(JSON.stringify({ message: 'unhandled' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const queryClient = createTestQueryClient()
+    const container = mount(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/connections/conn_1']}>
+          <Routes>
+            <Route path="/connections/:id" element={<ConnectionDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+
+    await waitFor(() => container.textContent?.includes('Mihir GitHub') === true)
+
+    const testButton = Array.from(container.querySelectorAll('button')).find(
+      (candidate) => candidate.textContent?.trim() === 'Test'
+    )
+    await act(async () => {
+      testButton?.click()
+    })
+    await waitFor(() => container.textContent?.includes('Token expired') === true)
+
+    // Same component instance, different :id.
+    await act(async () => {
+      window.history.pushState({}, '', '/connections/conn_2')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+
+    await waitFor(() => container.textContent?.includes('Mihir Slack') === true)
+
+    // conn_2's own row must not inherit conn_1's verdict.
+    expect(container.textContent).not.toContain('Token expired')
+
+    const testResultRow = Array.from(container.querySelectorAll('*')).find((node) =>
+      node.textContent?.trim().startsWith('Test result')
+    )
+    expect(testResultRow?.textContent).not.toContain('Token expired')
+  }, 20000)
 })
+
