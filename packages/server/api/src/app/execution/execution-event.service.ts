@@ -50,6 +50,17 @@ function startMemoryTtlSweep(): void {
 }
 const EVENT_TTL_SECONDS = 3600
 
+// Test seam for issue #392's fake-timer coverage: the sweep interval is a
+// module-level singleton, so a test file that already emitted under real
+// timers can't capture it with vi.useFakeTimers(). Clearing it lets the next
+// emit register the interval against the active (faked) timer implementation.
+export function __resetMemoryTtlSweepForTests(): void {
+    if (memorySweepTimer !== undefined) {
+        clearInterval(memorySweepTimer)
+        memorySweepTimer = undefined
+    }
+}
+
 const executionEventService = {
     async emit({
         executionId,

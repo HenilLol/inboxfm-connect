@@ -1,7 +1,7 @@
 import { tryCatch } from '@inboxfm-connect/core-utils'
 import { ExecutionEvent, ExecutionEventType } from '@inboxfm-connect/shared'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { executionEventService } from '../../../../src/app/execution/execution-event.service'
+import { __resetMemoryTtlSweepForTests, executionEventService } from '../../../../src/app/execution/execution-event.service'
 import { pubsub } from '../../../../src/app/helper/pubsub'
 
 async function waitUntil(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
@@ -296,5 +296,32 @@ describe('memory fallback eviction (issue #392)', () => {
         expect(after.some((e) => e.id === critical.id)).toBe(true)
         // and the list must not have grown: oldest non-critical was dropped
         expect(after.length).toBe(1000)
+    })
+
+    it('sweeps memory-fallback history once the TTL elapses (fake timers, issue #392)', async () => {
+        __resetMemoryTtlSweepForTests()
+        vi.useFakeTimers()
+        try {
+            const executionId = 'exec_ttl_sweep_test'
+            await executionEventService.emit({
+                executionId,
+                type: ExecutionEventType.PlannerStarted,
+                payload: { i: 0 },
+            })
+            const fresh = await executionEventService.readEventHistory({ executionId })
+            expect(fresh).toHaveLength(1)
+
+            // advance past EVENT_TTL_SECONDS + one sweep interval: the interval
+            // fires ~61 times, and every tick after the TTL sees lastActivity
+            // older than the cutoff and evicts history, sequence and mutex state
+            await vi.advanceTimersByTimeAsync(3600_000 + 60_000)
+
+            const swept = await executionEventService.readEventHistory({ executionId })
+            expect(swept).toHaveLength(0)
+        } finally {
+            __resetMemoryTtlSweepForTests()
+            vi.useRealTimers()
+            __resetMemoryTtlSweepForTests()
+        }
     })
 })
