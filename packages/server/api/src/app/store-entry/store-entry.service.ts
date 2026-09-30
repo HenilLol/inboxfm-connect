@@ -23,7 +23,7 @@ export const storeEntryService = {
                 value,
                 projectId,
             })
-            .orUpdate(['value'], ['projectId', 'key'])
+            .orUpdate(['value', 'updated'], ['projectId', 'key'])
             .execute()
 
         return storeEntryRepo().findOneBy({
