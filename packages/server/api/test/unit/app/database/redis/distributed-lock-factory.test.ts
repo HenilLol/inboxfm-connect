@@ -23,12 +23,14 @@ vi.mock('redlock', () => ({
 }))
 
 vi.mock('async-mutex', () => ({
-    Mutex: vi.fn().mockImplementation(() => ({
-        runExclusive: vi.fn((fn) => fn()),
-    })),
+    Mutex: class {
+        async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+            return fn()
+        }
+    },
 }))
 
-import { distributedLockFactory } from '../../../../../../src/app/database/redis/distributed-lock-factory'
+import { distributedLockFactory } from '../../../../../src/app/database/redis/distributed-lock-factory'
 
 describe('distributedLockFactory', () => {
     const mockLog: FastifyBaseLogger = {
@@ -44,7 +46,7 @@ describe('distributedLockFactory', () => {
     beforeEach(() => {
         vi.restoreAllMocks()
         vi.mocked(RedLock).mockImplementation(() => mockRedLock)
-        mockRedLock.using.mockImplementation(async (_keys: any, _timeout: any, _opts: any, fn: any) => fn())
+        mockRedLock.using.mockImplementation(async (_keys: unknown, _timeout: unknown, _opts: unknown, fn: () => Promise<unknown>) => fn())
         mockRedLock.quit.mockResolvedValue(undefined)
     })
 
@@ -93,6 +95,7 @@ describe('distributedLockFactory', () => {
         const createRedisConnection = vi.fn().mockResolvedValue(mockRedis)
         const lock = distributedLockFactory(createRedisConnection)
 
+        await lock(mockLog).runExclusive({ key: 'test', timeoutInSeconds: 10, fn: async () => 'done' })
         await lock(mockLog).destroy()
 
         expect(mockRedLock.quit).toHaveBeenCalled()

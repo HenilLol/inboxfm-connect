@@ -12,6 +12,20 @@ vi.mock('node:fs', () => ({
     rmSync: vi.fn(),
 }))
 
+vi.mock('../src/lib/utils/workspace-utils', () => ({
+    findRepoRoot: vi.fn().mockReturnValue('/repo'),
+    buildWorkspaceVersionMap: vi.fn().mockReturnValue(new Map()),
+    resolveWorkspaceDependencies: vi.fn(),
+    stripSemverRanges: vi.fn(),
+}))
+
+vi.mock('../src/lib/utils/bundle-piece-utils', () => ({
+    bundlePieceUtils: {
+        bundlePiece: vi.fn().mockResolvedValue({ bundleBytes: 100, rawBytes: 200, external: [] }),
+    },
+}))
+
+import { bundlePieceUtils } from '../src/lib/utils/bundle-piece-utils'
 import { preparePieceDistForPublish } from '../src/lib/utils/prepare-piece-utils'
 
 describe('CLI utils - prepare-piece-utils', () => {
@@ -31,6 +45,7 @@ describe('CLI utils - prepare-piece-utils', () => {
             vi.mocked(fs.existsSync).mockReturnValue(true)
             vi.mocked(fs.readFileSync).mockReturnValue('{}')
             vi.mocked(fs.readdirSync).mockReturnValue([])
+            vi.mocked(bundlePieceUtils.bundlePiece).mockResolvedValue({ bundleBytes: 100, rawBytes: 200, external: [] })
 
             await preparePieceDistForPublish('/pieces/test')
 

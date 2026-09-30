@@ -1,48 +1,13 @@
-import { AnalyticsFlowReportItem, AnalyticsRunsUsageItem, AnalyticsTimePeriod, PlatformAnalyticsReport } from '@inboxfm-connect/shared'
+import { AnalyticsRunsUsageItem, AnalyticsTimePeriod, PlatformAnalyticsReport } from '@inboxfm-connect/shared'
 import dayjs from 'dayjs'
-import { describe, expect, it, vi } from 'vitest'
-
-const { mergeRuns, filterReportByTimePeriod, getDateRange } = vi.hoisted(() => ({
-    mergeRuns: (existing: AnalyticsRunsUsageItem[], incoming: AnalyticsRunsUsageItem[]): AnalyticsRunsUsageItem[] => {
-        const map = new Map(existing.map(run => [`${run.flowId}-${run.day}`, { ...run }]))
-        for (const run of incoming) {
-            const key = `${run.flowId}-${run.day}`
-            if (map.has(key)) {
-                map.get(key)!.runs += run.runs
-            }
-            else {
-                map.set(key, { ...run })
-            }
-        }
-        return Array.from(map.values())
-    },
-    filterReportByTimePeriod: (report: PlatformAnalyticsReport, timePeriod?: AnalyticsTimePeriod): PlatformAnalyticsReport => {
-        if (!timePeriod) return report
-        const dateRange = getDateRange(timePeriod)
-        const runs = report.runs.filter((run) => dayjs(run.day).isAfter(dayjs(dateRange)))
-        return { ...report, runs }
-    },
-    getDateRange: (timePeriod: AnalyticsTimePeriod): string => {
-        const date = dayjs()
-        switch (timePeriod) {
-            case AnalyticsTimePeriod.LAST_WEEK:
-                return date.subtract(1, 'week').startOf('day').toISOString()
-            case AnalyticsTimePeriod.LAST_MONTH:
-                return date.subtract(1, 'month').startOf('day').toISOString()
-            case AnalyticsTimePeriod.LAST_THREE_MONTHS:
-                return date.subtract(3, 'month').startOf('day').toISOString()
-            case AnalyticsTimePeriod.LAST_SIX_MONTHS:
-                return date.subtract(6, 'month').startOf('day').toISOString()
-            case AnalyticsTimePeriod.LAST_YEAR:
-                return date.subtract(1, 'year').startOf('day').toISOString()
-            default:
-                throw new Error(`Invalid time period: ${timePeriod}`)
-        }
-    },
-}))
-
-import { platformAnalyticsReportService } from '../../../../../src/app/analytics/platform-analytics-report.service'
-import { platformAnalyticsReportRepo } from '../../../../../src/app/analytics/platform-analytics-report.service'
+import { describe, expect, it } from 'vitest'
+import {
+    filterReportByTimePeriod,
+    getDateRange,
+    mergeRuns,
+    platformAnalyticsReportRepo,
+    platformAnalyticsReportService,
+} from '../../../../src/app/analytics/platform-analytics-report.service'
 
 describe('Platform Analytics Report Service - Unit', () => {
     describe('mergeRuns', () => {
@@ -112,12 +77,29 @@ describe('Platform Analytics Report Service - Unit', () => {
         })
 
         it('throws on invalid time period', () => {
-            expect(() => getDateRange('invalid' as AnalyticsTimePeriod)).toThrow('Invalid time period')
+            // @ts-expect-error testing invalid time period runtime error
+            expect(() => getDateRange('invalid')).toThrow('Invalid time period')
         })
     })
 
     describe('filterReportByTimePeriod', () => {
         const platformId = 'plat_test123'
+        const recentRun: AnalyticsRunsUsageItem = {
+            flowId: 'flow-recent',
+            day: dayjs().subtract(2, 'day').format('YYYY-MM-DD'),
+            runs: 10,
+        }
+        const oldRun: AnalyticsRunsUsageItem = {
+            flowId: 'flow-old',
+            day: dayjs().subtract(20, 'day').format('YYYY-MM-DD'),
+            runs: 5,
+        }
+        const veryOldRun: AnalyticsRunsUsageItem = {
+            flowId: 'flow-very-old',
+            day: dayjs().subtract(400, 'day').format('YYYY-MM-DD'),
+            runs: 2,
+        }
+
         const baseReport: PlatformAnalyticsReport = {
             id: 'report1',
             platformId,
@@ -125,35 +107,45 @@ describe('Platform Analytics Report Service - Unit', () => {
             created: dayjs().toISOString(),
             updated: dayjs().toISOString(),
             outdated: false,
-            runs: [
-                { flowId: 'flow1', day: '2026-01-15', runs: 10 },
-                { flowId: 'flow2', day: '2025-12-01', runs: 5 },
-            ],
+            runs: [recentRun, oldRun, veryOldRun],
             flows: [],
             users: [],
         }
 
         it('returns unfiltered report when no timePeriod provided', () => {
             const result = filterReportByTimePeriod(baseReport)
-            expect(result.runs).toHaveLength(2)
+            expect(result.runs).toHaveLength(3)
         })
 
-        it('filters runs by time period', () => {
+        it('filters runs by LAST_WEEK keeping only recent runs', () => {
+            const result = filterReportByTimePeriod(baseReport, AnalyticsTimePeriod.LAST_WEEK)
+            expect(result.runs).toHaveLength(1)
+            expect(result.runs[0]?.flowId).toBe('flow-recent')
+        })
+
+        it('filters runs by LAST_MONTH keeping runs within 1 month', () => {
             const result = filterReportByTimePeriod(baseReport, AnalyticsTimePeriod.LAST_MONTH)
-            expect(result.runs.length).toBeLessThanOrEqual(2)
+            expect(result.runs).toHaveLength(2)
+            expect(result.runs.map(r => r.flowId)).toEqual(['flow-recent', 'flow-old'])
         })
 
         it('returns empty runs when all are before date range', () => {
-            const oldReport = { ...baseReport, runs: [{ flowId: 'flow1', day: '2020-01-01', runs: 1 }] }
-            const result = filterReportByTimePeriod(oldReport, AnalyticsTimePeriod.LAST_WEEK)
+            const ancientReport: PlatformAnalyticsReport = {
+                ...baseReport,
+                runs: [veryOldRun],
+            }
+            const result = filterReportByTimePeriod(ancientReport, AnalyticsTimePeriod.LAST_WEEK)
             expect(result.runs).toHaveLength(0)
         })
     })
 
     describe('exports', () => {
-        it('exports service functions', () => {
+        it('exports service functions and pure helpers', () => {
             expect(typeof platformAnalyticsReportService).toBe('function')
             expect(typeof platformAnalyticsReportRepo).toBe('function')
+            expect(typeof mergeRuns).toBe('function')
+            expect(typeof filterReportByTimePeriod).toBe('function')
+            expect(typeof getDateRange).toBe('function')
         })
     })
 })

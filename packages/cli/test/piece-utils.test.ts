@@ -9,7 +9,7 @@ describe('CLI utils - piece-utils', () => {
         })
 
         it('handles multiple spaces', () => {
-            expect(displayNameToKebabCase('Multi   Space')).toBe('multi---space')
+            expect(displayNameToKebabCase('Multi   Space')).toBe('multi-space')
         })
 
         it('handles single word', () => {

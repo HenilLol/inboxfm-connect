@@ -23,8 +23,17 @@ describe('CLI utils - workspace-utils', () => {
 
     describe('findRepoRoot', () => {
         it('finds workspace root with workspaces array', () => {
-            vi.mocked(fs.existsSync).mockReturnValue(true)
-            vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ workspaces: ['packages/*'] }))
+            vi.mocked(fs.existsSync).mockImplementation((p) => {
+                const str = p.toString().replace(/\\/g, '/')
+                return str === '/project/package.json'
+            })
+            vi.mocked(fs.readFileSync).mockImplementation((p) => {
+                const str = p.toString().replace(/\\/g, '/')
+                if (str === '/project/package.json') {
+                    return JSON.stringify({ workspaces: ['packages/*'] })
+                }
+                return JSON.stringify({})
+            })
 
             const result = findRepoRoot('/project/packages/pieces/test')
             expect(result).toBe('/project')
@@ -38,9 +47,12 @@ describe('CLI utils - workspace-utils', () => {
         })
 
         it('traverses up directory tree', () => {
-            vi.mocked(fs.existsSync).mockImplementation((p) => p.toString().endsWith('package.json'))
+            vi.mocked(fs.existsSync).mockImplementation((p) => {
+                const str = p.toString().replace(/\\/g, '/')
+                return str.endsWith('package.json')
+            })
             vi.mocked(fs.readFileSync).mockImplementation((p) => {
-                const str = p.toString()
+                const str = p.toString().replace(/\\/g, '/')
                 if (str.includes('/project/package.json')) {
                     return JSON.stringify({ workspaces: ['packages/*'] })
                 }
@@ -56,7 +68,7 @@ describe('CLI utils - workspace-utils', () => {
         it('builds version map from workspace packages', () => {
             vi.mocked(fs.existsSync).mockReturnValue(true)
             vi.mocked(fs.readFileSync).mockImplementation((p) => {
-                const str = p.toString()
+                const str = p.toString().replace(/\\/g, '/')
                 if (str.endsWith('package.json') && str.includes('/project/package.json')) {
                     return JSON.stringify({ workspaces: ['packages/*'] })
                 }
@@ -69,9 +81,9 @@ describe('CLI utils - workspace-utils', () => {
                 return JSON.stringify({})
             })
             vi.mocked(fs.readdirSync).mockReturnValue([
-                { name: 'pieces-common', isDirectory: () => true } as any,
-                { name: 'pieces-framework', isDirectory: () => true } as any,
-            ])
+                { name: 'pieces-common', isDirectory: () => true },
+                { name: 'pieces-framework', isDirectory: () => true },
+            ] as unknown as fs.Dirent[])
 
             const versionMap = buildWorkspaceVersionMap('/project')
 

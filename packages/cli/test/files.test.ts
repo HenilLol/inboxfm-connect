@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
 
 vi.mock('node:fs/promises', () => ({
+    constants: { F_OK: 0 },
     access: vi.fn(),
     readFile: vi.fn(),
     mkdir: vi.fn(),

@@ -2,8 +2,19 @@ import { describe, expect, it } from 'vitest'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 
+function findRepoRoot(startDir: string): string {
+    let current = startDir
+    while (current !== path.dirname(current)) {
+        if (fs.existsSync(path.join(current, 'package.json')) && fs.existsSync(path.join(current, 'packages'))) {
+            return current
+        }
+        current = path.dirname(current)
+    }
+    throw new Error('Could not find repo root')
+}
+
 describe('SSRF Guard Enforcement - Repo Scan', () => {
-    const repoRoot = path.resolve(__dirname, '../../../../../../')
+    const repoRoot = findRepoRoot(__dirname)
     const sourceDirs = [
         'packages/server/api/src/app',
         'packages/server/sandbox/src',
