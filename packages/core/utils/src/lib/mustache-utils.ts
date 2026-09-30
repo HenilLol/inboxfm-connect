@@ -48,7 +48,7 @@ export function extractMustacheTokens(input: string): MustacheToken[] {
                     i++
                 }
             }
-            if (depth === 0) {
+            if (depth === 0 && inQuote === null) {
                 const token = input.slice(start, i)
                 const inner = token.slice(2, -2)
                 results.push({ token, inner, index: start })

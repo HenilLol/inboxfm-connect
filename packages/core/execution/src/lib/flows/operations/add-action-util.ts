@@ -21,6 +21,9 @@ function escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/**
+ * Replaces occurrences of `oldStepName` with `newStepName` inside mustache expressions `{{ ... }}` in `input`.
+ */
 function replaceOldStepNameWithNewOne({
     input,
     oldStepName,
@@ -31,18 +34,19 @@ function replaceOldStepNameWithNewOne({
         return input
     }
     const escapedOldName = escapeRegex(oldStepName)
-    const regex = new RegExp(`\\b${escapedOldName}\\b`, 'g')
+    const stepRegex = new RegExp(`\\b${escapedOldName}\\b`, 'g')
 
     let result = ''
     let lastIndex = 0
 
     for (const token of tokens) {
-        result += input.substring(lastIndex, token.index)
-        const replacedInner = token.inner.replaceAll(regex, newStepName)
+        result += input.slice(lastIndex, token.index)
+        const replacedInner = token.inner.replaceAll(stepRegex, () => newStepName)
         result += `{{${replacedInner}}}`
         lastIndex = token.index + token.token.length
     }
-    result += input.substring(lastIndex)
+
+    result += input.slice(lastIndex)
     return result
 }
 
