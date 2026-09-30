@@ -74,5 +74,6 @@ export * from './lib/ee/scim'
 export * from './lib/ee/embed-subdomain'
 export * from './lib/management/project/project-requests'
 export * from './lib/execution/index'
+export * from './lib/connect-proxy'
 
 

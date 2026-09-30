@@ -64,11 +64,15 @@ export function useIntegration(name?: string) {
   })
 }
 
-export function useConnectionsQuery(params?: ConnectionsListParams) {
+export function useConnectionsQuery(
+  params?: ConnectionsListParams,
+  options?: { keepPreviousData?: boolean }
+) {
   const projectId = apiClient.getProjectId()
   return useQuery({
     queryKey: ['connections', params ?? {}, projectId],
     queryFn: () => connectionsApi.list(params),
+    placeholderData: options?.keepPreviousData ? keepPreviousData : undefined,
     meta: { showErrorDialog: true },
   })
 }
@@ -95,6 +99,17 @@ export function useDeleteConnection() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ id }: { id: string }) => connectionsApi.remove({ id }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['connections'] })
+      void queryClient.invalidateQueries({ queryKey: ['connection'] })
+    },
+  })
+}
+
+export function useTestConnection() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id }: { id: string }) => connectionsApi.test({ id }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['connections'] })
       void queryClient.invalidateQueries({ queryKey: ['connection'] })
@@ -209,7 +224,7 @@ export function useTriggerBindingsQuery() {
     queryFn: () => automationsApi.listTriggerBindings(),
     select: (page) => page.data,
     // Every current call site (Trigger Bindings list, Dashboard summary) renders
-    // this as primary data, so a fetch failure should surface a toast.
+    // this as primary data, so a fetch failure should surface an error dialog.
     meta: { showErrorDialog: true },
   })
 }
@@ -297,7 +312,7 @@ export function useScheduledTasksQuery() {
     queryFn: () => automationsApi.listScheduledTasks(),
     select: (page) => page.data,
     // Every current call site (Scheduled Tasks list, Dashboard summary) renders
-    // this as primary data, so a fetch failure should surface a toast.
+    // this as primary data, so a fetch failure should surface an error dialog.
     meta: { showErrorDialog: true },
   })
 }
@@ -423,7 +438,7 @@ export function useExecutionsQuery(params?: { status?: ExecutionStatus; limit?: 
     queryFn: () => executionsApi.list({ status: params?.status, limit: params?.limit }),
     placeholderData: keepPreviousData,
     // Every current call site (Activity list, Dashboard "Recent Executions") renders
-    // this as primary data, so a fetch failure should surface a toast.
+    // this as primary data, so a fetch failure should surface an error dialog.
     meta: { showErrorDialog: true },
   })
 }
