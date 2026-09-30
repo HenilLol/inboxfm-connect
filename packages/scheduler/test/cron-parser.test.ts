@@ -62,6 +62,11 @@ describe('Cron Parser & Validator', () => {
             expect(cronParser.validateCronExpression('*/-1 * * * *')).toBe(false)
             expect(cronParser.validateCronExpression('*/abc * * * *')).toBe(false)
         })
+
+        it('rejects unfireable cron expressions that can never compute next tick (Issue #389)', () => {
+            expect(cronParser.validateCronExpression('0 0 31 2 *')).toBe(false) // Feb 31
+            expect(cronParser.validateCronExpression('0 0 30 2 *')).toBe(false) // Feb 30
+        })
     })
 
     describe('parseCronExpression', () => {

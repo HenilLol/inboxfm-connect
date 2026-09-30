@@ -25,6 +25,36 @@ const DAY_NAMES: Record<string, number> = {
     sat: 6,
 }
 
+const MAX_DAYS_IN_MONTH: Record<number, number> = {
+    1: 31,
+    2: 29,
+    3: 31,
+    4: 30,
+    5: 31,
+    6: 30,
+    7: 31,
+    8: 31,
+    9: 30,
+    10: 31,
+    11: 30,
+    12: 31,
+}
+
+function hasValidCalendarDays(parsed: ParsedCronSchedule): boolean {
+    if (parsed.daysOfMonth.wildcard || !parsed.daysOfWeek.wildcard) {
+        return true
+    }
+    for (const month of parsed.months.values) {
+        const maxDays = MAX_DAYS_IN_MONTH[month] ?? 31
+        for (const dom of parsed.daysOfMonth.values) {
+            if (dom <= maxDays) {
+                return true
+            }
+        }
+    }
+    return false
+}
+
 function parseSingleValue({ valStr, min, max, names }: ParseValueParams): number {
     const lower = valStr.toLowerCase()
     if (names && names[lower] !== undefined) {
@@ -160,7 +190,7 @@ function parseCronExpression(expression: string): ParsedCronSchedule {
     const monStr = hasSeconds ? fields[4] : fields[3]
     const dowStr = hasSeconds ? fields[5] : fields[4]
 
-    return {
+    const parsed: ParsedCronSchedule = {
         seconds: parseField({ rawField: secStr, min: 0, max: 59 }),
         minutes: parseField({ rawField: minStr, min: 0, max: 59 }),
         hours: parseField({ rawField: hourStr, min: 0, max: 23 }),
@@ -170,15 +200,17 @@ function parseCronExpression(expression: string): ParsedCronSchedule {
         originalExpression: expression,
         hasSeconds,
     }
+
+    if (!hasValidCalendarDays(parsed)) {
+        throw new Error(`Invalid day of month for specified month(s) in cron expression "${expression}"`)
+    }
+
+    return parsed
 }
 
 function validateCronExpression(expression: string): boolean {
     try {
         const parsed = parseCronExpression(expression)
-        // Syntax alone accepts expressions that can never fire (e.g. "0 0 31 2 *" —
-        // 31 February). Reject those at the API boundary with the service's clean
-        // 400 instead of an uncaught computeNextRunAt throw turning create/update
-        // into a 500 (issue #389).
         if (!isFireable(parsed)) {
             return false
         }
@@ -301,7 +333,7 @@ function computeNextTick({ cronExpression, timezone = 'UTC', fromDate = new Date
     }
 
     let current = new Date(t)
-    const MAX_ITERATIONS = 50000
+    const MAX_ITERATIONS = 5000
     let iterations = 0
 
     while (iterations++ < MAX_ITERATIONS) {
