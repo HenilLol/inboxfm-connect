@@ -10,6 +10,7 @@ import { InitialSchema1700000000000 } from './migration/postgres/1700000000000-I
 import { AddApiKeyExpiry1790152916876 } from './migration/postgres/1790152916876-AddApiKeyExpiry'
 import { AddPositionToField1790153790769 } from './migration/postgres/1790153790769-AddPositionToField'
 import { AddAgentEntity1790153850000 } from './migration/postgres/1790153850000-AddAgentEntity'
+import { AddMcpOAuthFamilyLineage1790742883005 } from './migration/postgres/1790742883005-AddMcpOAuthFamilyLineage'
 
 const getSslConfig = (): boolean | TlsOptions => {
     const useSsl = system.get(AppSystemProp.POSTGRES_USE_SSL)
@@ -51,6 +52,7 @@ export const getMigrations = (): (new () => Migration)[] => {
         AddApiKeyExpiry1790152916876,
         AddPositionToField1790153790769,
         AddAgentEntity1790153850000,
+        AddMcpOAuthFamilyLineage1790742883005,
     ]
     return migrations
 }
