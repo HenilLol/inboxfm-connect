@@ -142,7 +142,7 @@ describe('Connect public API surface (Issue #135)', () => {
             })
             const token = created?.json().token as string
             const [row] = await db.findManyBy<{ id: string }>('connect_session', { projectId: ctx.project.id })
-            await connectSessionService.markConsumed(row.id)
+            await connectSessionService.consumeOrThrow(row.id)
 
             const response = await app!.inject({
                 method: 'GET',
