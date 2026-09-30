@@ -6,7 +6,8 @@ import {
     isExecutePropsOptions,
     isExecuteToolOperation,
     isExecuteTriggerOperation,
-} from '@inboxfm-connect/core-execution'
+    TriggerHookType,
+} from '../../../src/lib/engine/engine-operation'
 import type {
     EngineOperation,
     ExecuteExtractPieceMetadataOperation,
@@ -14,8 +15,7 @@ import type {
     ExecuteToolOperation,
     ExecuteTriggerOperation,
     ExecuteValidateAuthOperation,
-} from '@inboxfm-connect/core-execution'
-import { TriggerHookType } from '@inboxfm-connect/core-execution'
+} from '../../../src/lib/engine/engine-operation'
 
 /**
  * Issue #166 — the engine dispatched every operation through

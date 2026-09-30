@@ -1,6 +1,18 @@
 import { inspect } from 'util'
 import { formatPieceError, tryCatch } from '@inboxfm-connect/core-utils'
-import { EngineOperation, EngineOperationType, EngineResponse, EngineResponseStatus, ExecutionError, ExecutionErrorType, TriggerHookType, isExecuteAuthOperation, isExecuteExtractPieceMetadataOperation, isExecutePropsOptions, isExecuteToolOperation, isExecuteTriggerOperation } from '@inboxfm-connect/shared'
+import {
+    EngineOperation,
+    EngineOperationType,
+    EngineResponse,
+    EngineResponseStatus,
+    ExecutionError,
+    ExecutionErrorType,
+    isExecuteAuthOperation,
+    isExecuteExtractPieceMetadataOperation,
+    isExecutePropsOptions,
+    isExecuteToolOperation,
+    isExecuteTriggerOperation,
+} from '@inboxfm-connect/shared'
 import { EngineConstants } from '../handler/context/engine-constants'
 import { pieceHelper } from '../helper/piece-helper'
 import { authRefreshOperation } from './auth-refresh.operation'
