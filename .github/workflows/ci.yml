@@ -173,10 +173,38 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+  gateway:
+    name: Inbound gateway
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Validate shipped nginx configuration
+        run: |
+          # `nginx -t` resolves upstream server names, so run it on a throwaway
+          # network that answers for the `app` hostname.
+          docker network create gateway-config-check
+          docker run -d --name app --network gateway-config-check nginx:1.30.5-alpine sleep 600
+          trap 'docker rm -f app >/dev/null 2>&1 || true; docker network rm gateway-config-check >/dev/null 2>&1 || true' EXIT
+          docker run --rm --network gateway-config-check \
+            -v "$GITHUB_WORKSPACE/infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            nginx:1.30.5-alpine nginx -t
+      - name: Validate compose topology
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yml config -q
+      - name: Cleanup
+        if: always()
+        run: |
+          docker rm -f app >/dev/null 2>&1 || true
+          docker network rm gateway-config-check >/dev/null 2>&1 || true
+
   main:
     name: main
     if: always()
-    needs: [policy, checks, tool-search-postgres, browser]
+    needs: [policy, checks, tool-search-postgres, browser, gateway]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

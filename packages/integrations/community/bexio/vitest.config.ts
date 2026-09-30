@@ -1,7 +1,7 @@
-import path from 'path'
-import { defineConfig } from 'vitest/config'
+import path from 'path';
+import { defineConfig } from 'vitest/config';
 
-const repoRoot = path.resolve(__dirname, '../../../..')
+const repoRoot = path.resolve(__dirname, '../../../..');
 
 export default defineConfig({
   test: {
@@ -10,10 +10,18 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@inboxfm-connect/shared': path.resolve(repoRoot, 'packages/core/shared/src/index.ts'),
-      '@inboxfm-connect/pieces-framework': path.resolve(repoRoot, 'packages/pieces/framework/src/index.ts'),
-      '@inboxfm-connect/pieces-common': path.resolve(repoRoot, 'packages/pieces/common/src/index.ts'),
+      '@inboxfm-connect/shared': path.resolve(
+        repoRoot,
+        'packages/core/shared/src/index.ts'
+      ),
+      '@inboxfm-connect/pieces-framework': path.resolve(
+        repoRoot,
+        'packages/integrations/framework/src/index.ts'
+      ),
+      '@inboxfm-connect/pieces-common': path.resolve(
+        repoRoot,
+        'packages/integrations/common/src/index.ts'
+      ),
     },
   },
-})
-
+});

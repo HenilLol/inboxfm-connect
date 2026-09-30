@@ -11,6 +11,7 @@ import { globalRegistry } from 'zod/v4/core'
 import { aiProviderService } from './ai/ai-provider-service'
 import { aiProviderModule } from './ai/ai-provider.module'
 import { aiToolConfigModule } from './ai/ai-tool-config.module'
+import { platformAnalyticsModule } from './analytics/platform-analytics.module'
 import { setPlatformOAuthService } from './app-connection/app-connection-service/oauth2'
 import { appConnectionModule } from './app-connection/app-connection.module'
 import { platformAppConnectionModule } from './app-connection/platform-app-connection.module'
@@ -128,7 +129,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
                 },
             },
             info: {
-                title: 'Activepieces Documentation',
+                title: 'Inboxfm Connect Documentation',
                 version: '0.0.0',
             },
             externalDocs: {
@@ -242,7 +243,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     // await app.register(knowledgeBaseModule)
     await app.register(userModule)
     // await app.register(templateModule)
-    // await app.register(platformAnalyticsModule)
+    await app.register(platformAnalyticsModule)
 
     // Dev-only: accept browser debug logs into the shared evlog fs drain so a
     // chat run can be reconstructed end-to-end (web + api + worker). Never in cloud/prod.
@@ -276,7 +277,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     const edition = system.getEdition()
     app.log.info({
         edition,
-    }, 'Activepieces Edition')
+    }, 'Inboxfm Connect Edition')
     switch (edition) {
         case ApEdition.CLOUD:
             await app.register(licenseKeysModule)
