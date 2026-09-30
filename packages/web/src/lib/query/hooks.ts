@@ -64,11 +64,15 @@ export function useIntegration(name?: string) {
   })
 }
 
-export function useConnectionsQuery(params?: ConnectionsListParams) {
+export function useConnectionsQuery(
+  params?: ConnectionsListParams,
+  options?: { keepPreviousData?: boolean }
+) {
   const projectId = apiClient.getProjectId()
   return useQuery({
     queryKey: ['connections', params ?? {}, projectId],
     queryFn: () => connectionsApi.list(params),
+    placeholderData: options?.keepPreviousData ? keepPreviousData : undefined,
     meta: { showErrorDialog: true },
   })
 }
