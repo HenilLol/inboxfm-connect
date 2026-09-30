@@ -105,8 +105,10 @@ describe('auth session restore', () => {
 
     expect(capturedAuth?.user?.id).toBe(REAL_USER.id)
     expect(localStorage.getItem('ap-user')).toContain('dev@ap.com')
-    expect(localStorage.getItem('ap-token')).toBe('real-jwt')
-    expect(localStorage.getItem('ap-project-id')).toBe(REAL_PROJECT_ID)
+    // Token + project moved to sessionStorage (issue #383)
+    expect(sessionStorage.getItem('ap-token')).toBe('real-jwt')
+    expect(sessionStorage.getItem('ap-project-id')).toBe(REAL_PROJECT_ID)
+    expect(localStorage.getItem('ap-token')).toBeNull()
   })
 
   it('signOut clears the persisted identity', async () => {

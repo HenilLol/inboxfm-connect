@@ -28,7 +28,10 @@ export const appCredentialService = {
             .createQueryBuilder('app_credential')
             .where({ projectId })
         if (appName !== undefined) {
-            queryBuilder = queryBuilder.where({ appName })
+            // Issue #415: TypeORM's second .where() RESETS expressionMap.wheres
+            // (SelectQueryBuilder.js:341), which dropped the projectId scoping and
+            // listed every tenant's rows. Compose instead of replace.
+            queryBuilder = queryBuilder.andWhere({ appName })
         }
         const { data, cursor } = await paginator.paginate(queryBuilder)
         return paginationHelper.createPage<AppCredential>(data, cursor)
