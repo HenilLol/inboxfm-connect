@@ -23,7 +23,7 @@ export function isNewerVersion(a: string, b: string): boolean {
     return semVer.gt(a, b)
 }
 
-export function lastVersionOfEachPiece(pieces: PieceMetadataSchema[]): PieceMetadataSchema[] {
+export function lastVersionOfEachPiece(pieces: PieceMetadataSchema[], platformId?: string): PieceMetadataSchema[] {
     const seen = new Map<string, PieceMetadataSchema>()
     for (const piece of pieces) {
         // Issue #417: dedupe by (name, platformId) scope, mirroring
@@ -35,6 +35,19 @@ export function lastVersionOfEachPiece(pieces: PieceMetadataSchema[]): PieceMeta
         const existing = seen.get(key)
         if (isNil(existing) || isNewerVersion(piece.version, existing.version)) {
             seen.set(key, piece)
+        }
+    }
+    // Review follow-up (issue #417): once the platform's own scoped entry
+    // survives the dedupe, the same-name official row must NOT also appear in
+    // that platform's list - the platform piece replaces the official one for
+    // its platform, exactly like the per-platform view filterPieceBasedOnType
+    // builds. Official rows stay for every other platform (and for the
+    // platform-less view).
+    if (!isNil(platformId)) {
+        for (const [key, piece] of seen) {
+            if (isNil(piece.platformId) && seen.has(`${piece.name}:${platformId}`)) {
+                seen.delete(key)
+            }
         }
     }
     return Array.from(seen.values())

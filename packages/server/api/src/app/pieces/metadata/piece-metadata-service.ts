@@ -392,7 +392,7 @@ async function fetchLatestPieces({ platformId, locale = LocalesEnum.ENGLISH, log
     const merged = [...translatedPieces.filter((p) => !devPieceNames.has(p.name)), ...translatedDevPieces]
         .filter((piece) => filterPieceBasedOnType(platformId, piece))
         .filter((piece) => isSupportedRelease(currentRelease, piece))
-    return lastVersionOfEachPiece(merged)
+    return lastVersionOfEachPiece(merged, platformId)
 }
 
 async function fetchPieceVersion({ pieceName, version, platformId, log }: FetchPieceVersionParams): Promise<PieceMetadataSchema | null> {
