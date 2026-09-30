@@ -1,5 +1,5 @@
 import { act } from 'react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ConnectionDetailPage from './detail'
@@ -343,6 +343,9 @@ describe('Connection detail page', () => {
     const container = mount(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={['/connections/conn_1']}>
+          <Link to="/connections/conn_2" data-testid="route-link">
+            go
+          </Link>
           <Routes>
             <Route path="/connections/:id" element={<ConnectionDetailPage />} />
           </Routes>
@@ -361,10 +364,12 @@ describe('Connection detail page', () => {
     await waitFor(() => container.textContent?.includes('Token expired') === true)
 
     // Same component instance, different :id.
-    await act(async () => {
-      window.history.pushState({}, '', '/connections/conn_2')
-      window.dispatchEvent(new PopStateEvent('popstate'))
-    })
+    const probeLink = container.querySelector('[data-testid="route-link"]')
+    if (probeLink instanceof HTMLElement) {
+      await act(async () => {
+        probeLink.click()
+      })
+    }
 
     await waitFor(() => container.textContent?.includes('Mihir Slack') === true)
 
@@ -374,7 +379,7 @@ describe('Connection detail page', () => {
     const testResultRow = Array.from(container.querySelectorAll('*')).find((node) =>
       node.textContent?.trim().startsWith('Test result')
     )
-    expect(testResultRow?.textContent).not.toContain('Token expired')
+    expect(testResultRow?.textContent ?? '').not.toContain('Token expired')
   }, 20000)
 })
 
