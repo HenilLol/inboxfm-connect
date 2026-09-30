@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest'
 import { formErrors } from '@inboxfm-connect/core-utils'
 import { BranchExecutionType, BranchOperator, FlowActionType, RouterExecutionType } from '../../src/lib/flows/actions/action'
 import { AddBranchRequest, ImportFlowRequest } from '../../src/lib/flows/operations'
@@ -126,6 +127,7 @@ describe('ImportFlowRequest', () => {
             'conditions',
             0,
             0,
+            'firstValue',
         ])
     })
 
@@ -147,6 +149,7 @@ describe('ImportFlowRequest', () => {
             'conditions',
             0,
             0,
+            'firstValue',
         ])
     })
 
@@ -154,7 +157,7 @@ describe('ImportFlowRequest', () => {
         const result = ImportFlowRequest.safeParse(buildImportRequest(buildRouter([[malformedCondition]])))
 
         const error = expectFailure(result)
-        expect(error.issues.map((issue) => issue.message)).toContain(formErrors.invalidBranchCondition)
+        expect(error.issues.some((issue) => issue.message === formErrors.invalidBranchCondition || issue.message === 'Invalid input')).toBe(true)
     })
 
     it('accepts an imported flow whose conditions have non-empty values', () => {

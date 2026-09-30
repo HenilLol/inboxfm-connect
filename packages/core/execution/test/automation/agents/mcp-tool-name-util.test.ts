@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest'
 import { mcpToolNameUtils } from '../../../src/lib/agents/mcp-tool-name-util'
 
 const { createToolName, createPieceToolName } = mcpToolNameUtils

@@ -196,7 +196,7 @@ function buildBranchTextConditionValid(addMinLength: boolean) {
         firstValue: addMinLength ? z.string().min(1, formErrors.required) : z.string(),
         secondValue: addMinLength ? z.string().min(1, formErrors.required) : z.string(),
         caseSensitive: z.boolean().optional(),
-        operator: z.union(BranchOperatorTextLiterals).optional(),
+        operator: z.union(BranchOperatorTextLiterals, { message: formErrors.invalidBranchCondition }).optional(),
     })
 }
 
@@ -204,7 +204,7 @@ function buildBranchNumberConditionValid(addMinLength: boolean) {
     return z.object({
         firstValue: addMinLength ? z.string().min(1, formErrors.required) : z.string(),
         secondValue: addMinLength ? z.string().min(1, formErrors.required) : z.string(),
-        operator: z.union(BranchOperatorNumberLiterals).optional(),
+        operator: z.union(BranchOperatorNumberLiterals, { message: formErrors.invalidBranchCondition }).optional(),
     })
 }
 
@@ -212,14 +212,14 @@ function buildBranchDateConditionValid(addMinLength: boolean) {
     return z.object({
         firstValue: addMinLength ? z.string().min(1, formErrors.required) : z.string(),
         secondValue: addMinLength ? z.string().min(1, formErrors.required) : z.string(),
-        operator: z.union(BranchOperatorDateLiterals).optional(),
+        operator: z.union(BranchOperatorDateLiterals, { message: formErrors.invalidBranchCondition }).optional(),
     })
 }
 
 function buildBranchSingleValueConditionValid(addMinLength: boolean) {
     return z.object({
         firstValue: addMinLength ? z.string().min(1, formErrors.required) : z.string(),
-        operator: z.union(BranchOperatorSingleValueLiterals).optional(),
+        operator: z.union(BranchOperatorSingleValueLiterals, { message: formErrors.invalidBranchCondition }).optional(),
     })
 }
 
@@ -229,7 +229,17 @@ function buildBranchConditionValid(addMinLength: boolean) {
         buildBranchNumberConditionValid(addMinLength),
         buildBranchDateConditionValid(addMinLength),
         buildBranchSingleValueConditionValid(addMinLength),
-    ])
+    ], {
+        error: (issue: any) => {
+            if (issue.code === z.ZodIssueCode.invalid_union) {
+                const hasTooSmall = issue.unionErrors?.some((e: any) => e.issues?.some((i: any) => i.code === z.ZodIssueCode.too_small))
+                if (hasTooSmall && addMinLength) {
+                    return { message: formErrors.required }
+                }
+            }
+            return { message: formErrors.invalidBranchCondition }
+        },
+    })
 }
 
 export const ValidBranchCondition = buildBranchConditionValid(true)
@@ -269,7 +279,7 @@ export const RouterBranchesSchema = (addMinLength: boolean) =>
                 branchType: z.literal(BranchExecutionType.FALLBACK),
                 branchName: z.string(),
             }),
-        ]),
+        ], { message: formErrors.invalidBranchCondition }),
     )
 
 export const RouterActionSettings = z.object({
@@ -290,7 +300,7 @@ export type RouterActionSettings = z.infer<typeof RouterActionSettings>
 // Union of all actions
 
 export const FlowAction: z.ZodType<FlowAction> = z.lazy(() =>
-    z.union([
+    z.discriminatedUnion('type', [
         CodeActionSchema.extend({
             nextAction: FlowAction.optional(),
             continueOnFailureBranches: ContinueOnFailureBranches.optional(),
