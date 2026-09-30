@@ -309,4 +309,28 @@ describe('Settings page', () => {
     expect(container.textContent?.includes('Upgrade to Paid Tier')).toBe(false)
     expect(container.textContent?.includes('Manage in Stripe')).toBe(false)
   })
+
+  it('renders neutral — placeholders for unconfigured values, security badges, and no fabricated strings', async () => {
+    stubApi([
+      { match: PROJECTS_MATCH, respond: () => ({ body: { data: [] } }) },
+      { match: BILLING_INFO_MATCH, respond: () => ({ body: { stripeBillingEnabled: false, plan: { plan: 'self-hosted' }, usage: {} } }) },
+    ])
+
+    const container = renderSettingsPage()
+
+    await waitFor(() => container.textContent?.includes('Tenant Isolation Active') === true)
+    expect(container.textContent).toContain('SSRF Guard Active')
+    expect(container.textContent).toContain('Scoped RBAC')
+
+    // Verify absence of fabricated fallback strings
+    expect(container.textContent).not.toContain('Acme Corp')
+    expect(container.textContent).not.toContain('Enterprise Plan')
+    expect(container.textContent).not.toContain('InboxFM Main Project')
+    expect(container.textContent).not.toContain('developer@inboxfm.local')
+
+    // Verify neutral placeholders for unconfigured inputs
+    const inputs = Array.from(container.querySelectorAll('input'))
+    const placeholderValues = inputs.map((i) => i.value)
+    expect(placeholderValues).toContain('—')
+  })
 })
