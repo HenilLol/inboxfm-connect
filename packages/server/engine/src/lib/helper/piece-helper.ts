@@ -29,6 +29,7 @@ import {
     ExecuteToolOperation,
     ExecuteValidateAuthOperation,
     ExecuteValidateAuthResponse,
+    PropsValidationError,
 } from '@inboxfm-connect/shared'
 import { EngineConstants } from '../handler/context/engine-constants'
 import { ExecutionContext } from '../handler/context/execution-context'
@@ -224,7 +225,7 @@ export const pieceHelper = {
             {},
         )
         if (Object.keys(errors).length > 0) {
-            throw new Error(JSON.stringify(errors, null, 2))
+            throw new PropsValidationError(errors)
         }
 
         const context = {

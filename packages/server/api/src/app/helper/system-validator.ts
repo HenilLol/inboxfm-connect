@@ -29,6 +29,15 @@ function numberValidator(value: string | undefined) {
     return isValid ? true : 'Value must be a valid number'
 }
 
+function positiveIntegerValidator(value: string | undefined) {
+    if (isNil(value)) {
+        return 'Value must be a positive integer'
+    }
+    const num = Number(value)
+    const isValid = Number.isInteger(num) && num > 0
+    return isValid ? true : 'Value must be a positive integer'
+}
+
 function stringValidator(value: string) {
     const isValid = typeof value === 'string' && value.length > 0
     return isValid ? true : 'Value must be a non-empty string'
@@ -92,6 +101,9 @@ const systemPropValidators: {
     [AppSystemProp.API_RATE_LIMIT_AUTHN_WINDOW]: stringValidator,
     [AppSystemProp.API_RATE_LIMIT_AUTHN_ABUSE_MAX]: numberValidator,
     [AppSystemProp.API_RATE_LIMIT_AUTHN_ABUSE_WINDOW]: stringValidator,
+    [AppSystemProp.API_RATE_LIMIT_SYNC_ENABLED]: booleanValidator,
+    [AppSystemProp.API_RATE_LIMIT_SYNC_MAX]: positiveIntegerValidator,
+    [AppSystemProp.API_RATE_LIMIT_SYNC_WINDOW]: stringValidator,
     [AppSystemProp.API_SIGN_IN_EMAIL_THROTTLE_ENABLED]: booleanValidator,
     [AppSystemProp.API_SIGN_IN_EMAIL_THROTTLE_MAX_ATTEMPTS]: numberValidator,
     [AppSystemProp.API_SIGN_IN_EMAIL_THROTTLE_WINDOW_SECONDS]: numberValidator,
@@ -105,6 +117,7 @@ const systemPropValidators: {
     [AppSystemProp.ENCRYPTION_KEY]: stringValidator,
     [AppSystemProp.EXECUTION_DATA_RETENTION_DAYS]: numberValidator,
     [AppSystemProp.JWT_SECRET]: stringValidator,
+    [AppSystemProp.JWT_ISSUER]: stringValidator,
     [AppSystemProp.DEFAULT_CONCURRENT_JOBS_LIMIT]: numberValidator,
     [AppSystemProp.PIECES_SYNC_MODE]: enumValidator(Object.values(PieceSyncMode)),
     [AppSystemProp.POSTGRES_DATABASE]: stringValidator,
@@ -129,6 +142,9 @@ const systemPropValidators: {
     [AppSystemProp.API_KEY_RATE_LIMITER_ENABLED]: booleanValidator,
     [AppSystemProp.API_KEY_RATE_LIMITER_MAX_REQUESTS]: numberValidator,
     [AppSystemProp.API_KEY_RATE_LIMITER_WINDOW_SECONDS]: numberValidator,
+    [AppSystemProp.PUBLIC_INGRESS_RATE_LIMITER_ENABLED]: booleanValidator,
+    [AppSystemProp.PUBLIC_INGRESS_RATE_LIMITER_MAX_REQUESTS]: numberValidator,
+    [AppSystemProp.PUBLIC_INGRESS_RATE_LIMITER_WINDOW_SECONDS]: numberValidator,
     [AppSystemProp.API_KEY_ROTATION_GRACE_PERIOD_SECONDS]: numberValidator,
     [AppSystemProp.QUEUE_UI_ENABLED]: booleanValidator,
     [AppSystemProp.QUEUE_UI_PASSWORD]: stringValidator,
@@ -162,6 +178,7 @@ const systemPropValidators: {
     [AppSystemProp.SMTP_SENDER_NAME]: stringValidator,
     [AppSystemProp.SMTP_USERNAME]: stringValidator,
     [AppSystemProp.TELEMETRY_ENABLED]: booleanValidator,
+    [AppSystemProp.TELEMETRY_INCLUDE_PII]: booleanValidator,
     [AppSystemProp.TOOL_SEARCH_ENABLED]: booleanValidator,
     [AppSystemProp.TRIGGER_DEFAULT_POLL_INTERVAL]: numberValidator,
     [AppSystemProp.WEBHOOK_TIMEOUT_SECONDS]: numberValidator,
