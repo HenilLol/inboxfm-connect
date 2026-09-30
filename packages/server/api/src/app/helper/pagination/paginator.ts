@@ -153,11 +153,29 @@ export default class Paginator<Entity extends ObjectLiteral> {
         const clonedBuilder = new SelectQueryBuilder<Entity>(builder)
 
         if (!this.isUnlimited()) {
+            // Issue #411 (CodeAnt follow-up): an undecodable cursor must degrade
+            // to first-page semantics, not stay flagged as an after/before
+            // cursor with empty filter keys — that both reverses the result
+            // set (beforeCursor branch) and emits misleading next/previous
+            // links. Null the raw cursor when decoding yields nothing, so the
+            // rest of paginate() behaves exactly like an uncursored first page.
             if (this.hasAfterCursor()) {
-                Object.assign(cursors, this.decode(this.afterCursor!))
+                const decoded = this.decode(this.afterCursor!)
+                if (Object.keys(decoded).length === 0) {
+                    this.afterCursor = null
+                }
+                else {
+                    Object.assign(cursors, decoded)
+                }
             }
             else if (this.hasBeforeCursor()) {
-                Object.assign(cursors, this.decode(this.beforeCursor!))
+                const decoded = this.decode(this.beforeCursor!)
+                if (Object.keys(decoded).length === 0) {
+                    this.beforeCursor = null
+                }
+                else {
+                    Object.assign(cursors, decoded)
+                }
             }
 
             if (Object.keys(cursors).length > 0) {
