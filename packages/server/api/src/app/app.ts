@@ -21,6 +21,7 @@ import { connectOAuthAppModule } from './connect-oauth-apps/connect-oauth-app.mo
 import { connectProxyModule } from './connect-proxy/connect-proxy.module'
 import { connectSessionModule } from './connect-sessions/connect-session.module'
 import { oidcModule } from './core/security/oidc/oidc.module'
+import { publicIngressRateLimitMiddleware } from './core/security/public-ingress-rate-limit-middleware'
 import { rateLimitModule } from './core/security/rate-limit'
 import { authenticationMiddleware } from './core/security/v2/authn/authentication-middleware'
 import { apiKeyRateLimitMiddleware } from './core/security/v2/authz/api-key-rate-limit-middleware'
@@ -186,6 +187,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     app.addHook('preHandler', authorizationMiddleware)
     app.addHook('preHandler', projectRateLimitMiddleware)
     app.addHook('preHandler', apiKeyRateLimitMiddleware)
+    app.addHook('preHandler', publicIngressRateLimitMiddleware)
     app.addHook('preHandler', rbacMiddleware)
 
     await systemJobsSchedule(app.log).init()
