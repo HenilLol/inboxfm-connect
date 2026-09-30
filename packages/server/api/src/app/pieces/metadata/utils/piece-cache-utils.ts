@@ -26,9 +26,15 @@ export function isNewerVersion(a: string, b: string): boolean {
 export function lastVersionOfEachPiece(pieces: PieceMetadataSchema[]): PieceMetadataSchema[] {
     const seen = new Map<string, PieceMetadataSchema>()
     for (const piece of pieces) {
-        const existing = seen.get(piece.name)
+        // Issue #417: dedupe by (name, platformId) scope, mirroring
+        // pickLatestVersionIds' key shape. A platform-scoped custom piece may
+        // share its name with an official piece (the entity's unique index is
+        // (name, version, platformId)); keying by name alone silently dropped
+        // the platform's piece whenever the same-name official was newer.
+        const key = `${piece.name}:${piece.platformId ?? ''}`
+        const existing = seen.get(key)
         if (isNil(existing) || isNewerVersion(piece.version, existing.version)) {
-            seen.set(piece.name, piece)
+            seen.set(key, piece)
         }
     }
     return Array.from(seen.values())
