@@ -21,8 +21,28 @@ export const I18N_ALLOWLIST: readonly AllowlistEntry[] = [
         rationale: 'CLI project replacement snapshot validation error payload returned to operators.',
     },
     {
+        file: 'packages/core/shared/src/lib/connect-proxy/index.ts',
+        msg: 'Path must be a relative path and cannot contain an absolute URL scheme',
+        rationale: 'Connect proxy REST API validation error message returned to developer clients calling the proxy endpoint.',
+    },
+    {
+        file: 'packages/core/shared/src/lib/connect-proxy/index.ts',
+        msg: 'Path cannot contain backslashes',
+        rationale: 'Connect proxy REST API validation error message returned to developer clients calling the proxy endpoint.',
+    },
+    {
+        file: 'packages/core/shared/src/lib/connect-proxy/index.ts',
+        msg: 'Path cannot contain control characters',
+        rationale: 'Connect proxy REST API validation error message returned to developer clients calling the proxy endpoint.',
+    },
+    {
+        file: 'packages/core/shared/src/lib/connect-proxy/index.ts',
+        msg: 'Path cannot contain directory traversal elements ("..")',
+        rationale: 'Connect proxy REST API validation error message returned to developer clients calling the proxy endpoint.',
+    },
+    {
         file: 'packages/server/api/src/app/mcp/oauth/client/mcp-oauth-register.controller.ts',
-        msg: 'Only http, https, or private-use URI schemes (RFC 8252) are allowed',
+        msg: 'Only https, loopback http (RFC 8252), or private-use URI schemes are allowed',
         rationale: 'RFC 8252 OAuth client redirect URI validation message returned in developer API error response.',
     },
     {
