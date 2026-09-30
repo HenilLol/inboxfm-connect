@@ -20,6 +20,7 @@ import { FastifyBaseLogger } from 'fastify'
 import { repoFactory } from '../../core/db/repo-factory'
 import { getTriggerBindingTickLockKey } from '../../database/redis/keys'
 import { distributedStore } from '../../database/redis-connections'
+import { domainHelper } from '../../helper/domain-helper'
 import { userInteractionWatcher } from '../../helper/user-interaction/user-interaction-watcher'
 import { projectExecutionConcurrencyGuard } from '../concurrency/project-execution-concurrency-guard'
 import { executionService } from '../execution.service'
@@ -348,7 +349,7 @@ async function unsyncTriggerSchedule(id: string): Promise<void> {
 
 const engineHookLog = apLogger.create({ bindings: {} })
 
-async function executeEngineHook<HT extends TriggerHookType>({ binding, hookType, triggerPayload }: ExecuteEngineHookParams<HT>): Promise<ExecuteTriggerResponse<HT>> {
+export async function executeEngineHook<HT extends TriggerHookType>({ binding, hookType, triggerPayload }: ExecuteEngineHookParams<HT>): Promise<ExecuteTriggerResponse<HT>> {
     const piece: PiecePackage = {
         pieceName: binding.pieceName,
         pieceVersion: binding.pieceVersion,
@@ -376,7 +377,9 @@ async function executeEngineHook<HT extends TriggerHookType>({ binding, hookType
             propertySettings: binding.propertySettings,
             status: binding.status,
         },
-        webhookUrl: `http://localhost:3000/v1/trigger-bindings/${binding.id}/webhook`,
+        webhookUrl: await domainHelper.getPublicApiUrl({
+            path: `v1/trigger-bindings/${binding.id}/run`,
+        }),
         triggerPayload,
         piece,
         requestId: apId(),
@@ -429,7 +432,7 @@ type ExecuteRunParams = {
     triggerPayload?: unknown
 }
 
-type ExecuteEngineHookParams<HT extends TriggerHookType> = {
+export type ExecuteEngineHookParams<HT extends TriggerHookType> = {
     binding: TriggerBinding
     hookType: HT
     triggerPayload?: unknown
