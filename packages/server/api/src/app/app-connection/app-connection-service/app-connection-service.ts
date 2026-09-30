@@ -55,7 +55,7 @@ async function runUpsertExclusiveOrWithoutLock<T>({ externalId, scope, platformI
     log: FastifyBaseLogger
 }): Promise<T> {
     const key = buildUpsertLockKey({ externalId, scope, platformId, projectIds })
-    let fnThrew = false
+    let fnSettled = false
     try {
         return await distributedLock(log).runExclusive({
             key,
@@ -67,14 +67,14 @@ async function runUpsertExclusiveOrWithoutLock<T>({ externalId, scope, platformI
                 catch (error) {
                     // Distinguish "fn failed" (propagate, never retry) from
                     // "lock infrastructure failed" (fail open below).
-                    fnThrew = true
+                    fnSettled = true
                     throw error
                 }
             },
         })
     }
     catch (error) {
-        if (fnThrew) {
+        if (fnSettled) {
             throw error
         }
         log.warn({ error, lockKey: key }, 'App connection upsert lock unavailable - failing open')
@@ -122,7 +122,7 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
         // runExclusive releases the lock when the winner's upsert commits, so
         // the loser's lookup below happens strictly after that commit and
         // finds the winner's row instead of inserting a duplicate.
-        return await runUpsertExclusiveOrWithoutLock({
+        return runUpsertExclusiveOrWithoutLock({
             externalId,
             scope,
             platformId,
