@@ -1,5 +1,5 @@
 import { Activity, ArrowLeft, KeyRound, PencilLine, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ConnectionStatusBadge } from '@/components/connections/connection-status-badge'
@@ -44,6 +44,14 @@ export default function ConnectionDetailPage() {
   const testConnection = useTestConnection()
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [testResult, setTestResult] = useState<TestConnectionResult | null>(null)
+
+  // Navigating from one connection's detail straight to another reuses this
+  // component instance (same route, different :id), so the previous
+  // connection's verdict, timestamp and failure message would otherwise stay
+  // on screen next to the new connection. Drop it whenever the id changes.
+  useEffect(() => {
+    setTestResult(null)
+  }, [id])
 
   function handleTest() {
     if (!id) return
