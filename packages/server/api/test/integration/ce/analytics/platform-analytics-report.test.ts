@@ -1,9 +1,12 @@
 import dayjs from 'dayjs'
-import { AnalyticsTimePeriod, PlatformAnalyticsReport } from '@inboxfm-connect/shared'
+import { AnalyticsTimePeriod } from '@inboxfm-connect/shared'
 import { FastifyInstance } from 'fastify'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { platformAnalyticsReportRepo } from '../../../../../src/app/analytics/platform-analytics-report.service'
-import { databaseConnection } from '../../../../../src/app/database/database-connection'
+import {
+    platformAnalyticsReportRepo,
+    platformAnalyticsReportService,
+} from '../../../../src/app/analytics/platform-analytics-report.service'
+import { databaseConnection } from '../../../../src/app/database/database-connection'
 import { createTestContext, TestContext } from '../../../helpers/test-context'
 import { setupTestEnvironment, teardownTestEnvironment } from '../../../helpers/test-setup'
 
@@ -30,8 +33,6 @@ afterEach(async () => {
 
 describe('Platform Analytics Report lifecycle', () => {
     it('creates a new report on first refresh', async () => {
-        const { platformAnalyticsReportService } = await import('../../../../../src/app/analytics/platform-analytics-report.service')
-        
         const report = await platformAnalyticsReportService(ctx.log).refreshReport(ctx.platform.id)
         
         expect(report).toBeDefined()
@@ -44,12 +45,13 @@ describe('Platform Analytics Report lifecycle', () => {
     })
 
     it('updates existing report on subsequent refresh', async () => {
-        const { platformAnalyticsReportService } = await import('../../../../../src/app/analytics/platform-analytics-report.service')
-        
         const firstReport = await platformAnalyticsReportService(ctx.log).refreshReport(ctx.platform.id)
         const firstId = firstReport.id
         
-        await new Promise(resolve => setTimeout(resolve, 10))
+        await databaseConnection().getRepository('platform_analytics_report').update(
+            { platformId: ctx.platform.id },
+            { cachedAt: dayjs().subtract(1, 'second').toISOString() }
+        )
         
         const secondReport = await platformAnalyticsReportService(ctx.log).refreshReport(ctx.platform.id)
         
@@ -58,8 +60,6 @@ describe('Platform Analytics Report lifecycle', () => {
     })
 
     it('marks report as outdated', async () => {
-        const { platformAnalyticsReportService } = await import('../../../../../src/app/analytics/platform-analytics-report.service')
-        
         await platformAnalyticsReportService(ctx.log).refreshReport(ctx.platform.id)
         await platformAnalyticsReportService(ctx.log).markAsOutdated(ctx.platform.id)
         
@@ -68,8 +68,6 @@ describe('Platform Analytics Report lifecycle', () => {
     })
 
     it('regenerates report when outdated', async () => {
-        const { platformAnalyticsReportService } = await import('../../../../../src/app/analytics/platform-analytics-report.service')
-        
         const firstReport = await platformAnalyticsReportService(ctx.log).refreshReport(ctx.platform.id)
         await platformAnalyticsReportService(ctx.log).markAsOutdated(ctx.platform.id)
         
@@ -80,8 +78,6 @@ describe('Platform Analytics Report lifecycle', () => {
     })
 
     it('regenerates report when cachedAt is older than 5 minutes', async () => {
-        const { platformAnalyticsReportService } = await import('../../../../../src/app/analytics/platform-analytics-report.service')
-        
         const firstReport = await platformAnalyticsReportService(ctx.log).refreshReport(ctx.platform.id)
         
         await databaseConnection().getRepository('platform_analytics_report').update(
@@ -95,40 +91,54 @@ describe('Platform Analytics Report lifecycle', () => {
     })
 
     it('returns cached report when fresh and not outdated', async () => {
-        const { platformAnalyticsReportService } = await import('../../../../../src/app/analytics/platform-analytics-report.service')
-        
         const firstReport = await platformAnalyticsReportService(ctx.log).refreshReport(ctx.platform.id)
         const secondReport = await platformAnalyticsReportService(ctx.log).getOrGenerateReport(ctx.platform.id)
         
         expect(secondReport.id).toBe(firstReport.id)
-        expect(secondReport.cachedAt).toBe(firstReport.cachedAt)
+        expect(dayjs(secondReport.cachedAt).toISOString()).toBe(dayjs(firstReport.cachedAt).toISOString())
     })
 
     it('filters report by time period', async () => {
-        const { platformAnalyticsReportService } = await import('../../../../../src/app/analytics/platform-analytics-report.service')
-        
-        await platformAnalyticsReportService(ctx.log).refreshReport(ctx.platform.id)
-        
+        const recentDay = dayjs().subtract(2, 'day').format('YYYY-MM-DD')
+        const oldDay = dayjs().subtract(20, 'day').format('YYYY-MM-DD')
+
+        await platformAnalyticsReportRepo().save({
+            id: 'report-filter-test',
+            platformId: ctx.platform.id,
+            cachedAt: dayjs().toISOString(),
+            runs: [
+                { flowId: 'flow-recent', day: recentDay, runs: 10 },
+                { flowId: 'flow-old', day: oldDay, runs: 5 },
+            ],
+            flows: [],
+            users: [],
+            created: dayjs().toISOString(),
+            outdated: false,
+            updated: dayjs().toISOString(),
+        })
+
         const fullReport = await platformAnalyticsReportService(ctx.log).getOrGenerateReport(ctx.platform.id)
+        expect(fullReport.runs).toHaveLength(2)
+
         const filteredReport = await platformAnalyticsReportService(ctx.log).getOrGenerateReport(
             ctx.platform.id, 
             AnalyticsTimePeriod.LAST_WEEK
         )
-        
-        expect(filteredReport.runs.length).toBeLessThanOrEqual(fullReport.runs.length)
+        expect(filteredReport.runs).toHaveLength(1)
+        expect(filteredReport.runs[0]?.flowId).toBe('flow-recent')
     })
 
     it('enforces project scoping - reports isolated by platform', async () => {
-        const { platformAnalyticsReportService } = await import('../../../../../src/app/analytics/platform-analytics-report.service')
-        
-        const { createTestContext } = await import('../../../helpers/test-context')
         const ctx2 = await createTestContext(app!)
-        
-        const report1 = await platformAnalyticsReportService(ctx.log).refreshReport(ctx.platform.id)
-        const report2 = await platformAnalyticsReportService(ctx.log).refreshReport(ctx2.platform.id)
-        
-        expect(report1.platformId).toBe(ctx.platform.id)
-        expect(report2.platformId).toBe(ctx2.platform.id)
-        expect(report1.id).not.toBe(report2.id)
+        try {
+            const report1 = await platformAnalyticsReportService(ctx.log).refreshReport(ctx.platform.id)
+            const report2 = await platformAnalyticsReportService(ctx.log).refreshReport(ctx2.platform.id)
+            
+            expect(report1.platformId).toBe(ctx.platform.id)
+            expect(report2.platformId).toBe(ctx2.platform.id)
+            expect(report1.id).not.toBe(report2.id)
+        } finally {
+            await databaseConnection().getRepository('platform_analytics_report').delete({ platformId: ctx2.platform.id })
+        }
     })
 })
