@@ -34,7 +34,7 @@ describe('POST /v1/execute entrypoint guards (Issue #136)', () => {
         ctx = await createTestContext(app!)
     })
 
-    it('rejects unauthenticated calls with 401', async () => {
+    it('rejects unauthenticated calls with 403', async () => {
         const response = await app!.inject({
             method: 'POST',
             url: '/api/v1/execute',
@@ -47,7 +47,7 @@ describe('POST /v1/execute entrypoint guards (Issue #136)', () => {
             },
         })
 
-        expect(response.statusCode).toBe(StatusCodes.UNAUTHORIZED)
+        expect(response.statusCode).toBe(StatusCodes.FORBIDDEN)
     })
 
     it('rejects a call with neither connectionId nor externalUserId', async () => {
@@ -68,6 +68,29 @@ describe('POST /v1/execute entrypoint guards (Issue #136)', () => {
             integration: '@inboxfm-connect/piece-slack',
             tool: 'send_message',
             externalUserId: 'ghost-customer-with-no-connection',
+            input: {},
+        })
+
+        expect(response?.statusCode).toBe(StatusCodes.NOT_FOUND)
+    })
+
+    it('rejects a call with missing projectId', async () => {
+        const response = await ctx.post('/v1/execute', {
+            integration: '@inboxfm-connect/piece-slack',
+            tool: 'send_message',
+            connectionId: 'conn_missing',
+            input: {},
+        })
+
+        expect(response?.statusCode).toBe(StatusCodes.FORBIDDEN)
+    })
+
+    it('rejects a call with unknown projectId with 404', async () => {
+        const response = await ctx.post('/v1/execute', {
+            projectId: 'proj_unknown_12345',
+            integration: '@inboxfm-connect/piece-slack',
+            tool: 'send_message',
+            connectionId: 'conn_missing',
             input: {},
         })
 
