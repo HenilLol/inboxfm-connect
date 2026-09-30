@@ -7,6 +7,8 @@ import { pubsub } from '../helper/pubsub'
 const instanceId = apId()
 const memorySequences = new Map<string, number>()
 const memoryHistory = new Map<string, ExecutionEvent[]>()
+const memoryLastActivity = new Map<string, number>()
+let memorySweepTimer: NodeJS.Timeout | undefined
 const memoryListeners = new Map<string, Set<(event: ExecutionEvent) => void>>()
 const executionSubscriptionMutexes = new Map<string, Mutex>()
 
@@ -20,7 +22,44 @@ function getExecutionSubscriptionMutex(executionId: string): Mutex {
 }
 
 const MAX_HISTORY_EVENTS = 1000
+
+// Memory-fallback eviction (issue #392): the Redis path self-cleans via EXPIRE
+// (EVENT_TTL_SECONDS). The memory fallback has no such timer, so entries for
+// finished executions accumulate forever on Redis-less deployments. This sweep
+// mirrors the Redis TTL instead of dropping state on last-unsubscribe — an
+// unsubscribe-triggered eviction would delete the history a page-refresh
+// subscribe (SSE backfill via readEventHistory) still expects to read.
+const MEMORY_SWEEP_INTERVAL_MS = 60_000
+
+function startMemoryTtlSweep(): void {
+    if (memorySweepTimer !== undefined) {
+        return
+    }
+    memorySweepTimer = setInterval(() => {
+        const cutoff = Date.now() - EVENT_TTL_SECONDS * 1000
+        for (const [executionId, lastActivity] of memoryLastActivity) {
+            if (lastActivity < cutoff) {
+                memoryHistory.delete(executionId)
+                memorySequences.delete(executionId)
+                memoryLastActivity.delete(executionId)
+                executionSubscriptionMutexes.delete(executionId)
+            }
+        }
+    }, MEMORY_SWEEP_INTERVAL_MS)
+    memorySweepTimer.unref()
+}
 const EVENT_TTL_SECONDS = 3600
+
+// Test seam for issue #392's fake-timer coverage: the sweep interval is a
+// module-level singleton, so a test file that already emitted under real
+// timers can't capture it with vi.useFakeTimers(). Clearing it lets the next
+// emit register the interval against the active (faked) timer implementation.
+export function __resetMemoryTtlSweepForTests(): void {
+    if (memorySweepTimer !== undefined) {
+        clearInterval(memorySweepTimer)
+        memorySweepTimer = undefined
+    }
+}
 
 const executionEventService = {
     async emit({
@@ -230,9 +269,26 @@ const executionEventService = {
             // Fallback to memory
         }
 
+        // Touch last-activity on every event (codeant finding on #393), including
+        // discarded non-critical ones at the cap: an actively producing execution
+        // must not be swept out and lose its fallback history while it is still
+        // emitting — activity, not storage, drives the TTL.
+        memoryLastActivity.set(event.executionId, Date.now())
+        startMemoryTtlSweep()
+
         const list = memoryHistory.get(event.executionId) ?? []
-        if (list.length >= MAX_HISTORY_EVENTS && !isCritical) {
-            return
+        if (list.length >= MAX_HISTORY_EVENTS) {
+            if (!isCritical) {
+                return
+            }
+            // Critical events must land, but not grow the list without bound
+            // (issue #392): make room by dropping the oldest non-critical
+            // entry, then the absolute oldest if every survivor is critical.
+            let dropIndex = list.findIndex((e) => !CRITICAL_EXECUTION_EVENT_TYPES.includes(e.type))
+            if (dropIndex === -1) {
+                dropIndex = 0
+            }
+            list.splice(dropIndex, 1)
         }
         list.push(event)
         memoryHistory.set(event.executionId, list)
