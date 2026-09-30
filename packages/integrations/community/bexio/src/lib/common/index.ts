@@ -5,13 +5,15 @@ export const bexioCommon = {
   api_version: '3.0',
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export function extractErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof HttpError) {
     const body = error.response?.body;
-    if (typeof body === 'object' && body !== null) {
-      const msg =
-        (body as Record<string, unknown>).message ||
-        (body as Record<string, unknown>).error;
+    if (isRecord(body)) {
+      const msg = body['message'] ?? body['error'];
       if (typeof msg === 'string' && msg.trim()) {
         return msg.trim();
       }
@@ -23,15 +25,12 @@ export function extractErrorMessage(error: unknown, fallback: string): string {
     }
   }
 
-  if (error && typeof error === 'object') {
-    const errObj = error as Record<string, unknown>;
-    const resp = errObj['response'] as Record<string, unknown> | undefined;
-    if (resp && typeof resp === 'object') {
-      const data = resp['data'] || resp['body'];
-      if (typeof data === 'object' && data !== null) {
-        const msg =
-          (data as Record<string, unknown>).message ||
-          (data as Record<string, unknown>).error;
+  if (isRecord(error)) {
+    const resp = error['response'];
+    if (isRecord(resp)) {
+      const data = resp['data'] ?? resp['body'];
+      if (isRecord(data)) {
+        const msg = data['message'] ?? data['error'];
         if (typeof msg === 'string' && msg.trim()) {
           return msg.trim();
         }
@@ -47,18 +46,21 @@ export function extractErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error) {
     if (error.message.startsWith('{') && error.message.includes('"response"')) {
       try {
-        const parsed = JSON.parse(error.message);
-        const body = parsed?.response?.body || parsed?.response?.data;
-        if (typeof body === 'object' && body !== null) {
-          const msg = body.message || body.error;
-          if (typeof msg === 'string' && msg.trim()) {
-            return msg.trim();
+        const parsed: unknown = JSON.parse(error.message);
+        if (isRecord(parsed) && isRecord(parsed['response'])) {
+          const resp = parsed['response'];
+          const body = resp['body'] ?? resp['data'];
+          if (isRecord(body)) {
+            const msg = body['message'] ?? body['error'];
+            if (typeof msg === 'string' && msg.trim()) {
+              return msg.trim();
+            }
+          } else if (typeof body === 'string' && body.trim()) {
+            return body.trim();
           }
-        } else if (typeof body === 'string' && body.trim()) {
-          return body.trim();
-        }
-        if (parsed?.response?.status) {
-          return `HTTP ${parsed.response.status}`;
+          if (resp['status']) {
+            return `HTTP ${resp['status']}`;
+          }
         }
       } catch {
         // Fall back to original message
