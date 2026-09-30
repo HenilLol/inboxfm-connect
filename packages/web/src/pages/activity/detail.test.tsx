@@ -546,8 +546,12 @@ describe('Execution detail page', () => {
       expect(persisted).not.toContain(succeededToolCall.id)
       expect(persisted).not.toContain('Daily digest ready')
       expect(persisted).not.toContain('ExecutionStarted')
-      // Only the pre-existing session keys are allowed to be there.
-      expect(Object.keys(localStorage).sort()).toEqual(['ap-project-id', 'ap-token'])
+      // Only the pre-seeded session keys are allowed to be there — the auth
+      // token/project live in sessionStorage since issue #383 (localStorage
+      // stays empty here because this suite never signs in), and no payload
+      // leaked into either store.
+      expect(Object.keys(localStorage).sort()).toEqual([])
+      expect(Object.keys(sessionStorage).sort()).toEqual(['ap-project-id', 'ap-token'])
     }, 20000)
   })
 })

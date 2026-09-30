@@ -88,6 +88,42 @@ export class InboxFM {
         })
     }
 
+    async proxy({
+        externalUserId,
+        provider,
+        connectionId,
+        subdomain,
+        method = 'GET',
+        path,
+        headers,
+        query,
+        body,
+        timeoutMs,
+        idempotencyKey,
+        ...requestOptions
+    }: ConnectProxyParams): Promise<ConnectProxyResult> {
+        return this.request<ConnectProxyResult>('/v1/connect-proxy/request', {
+            method: 'POST',
+            body: {
+                projectId: this.projectId,
+                externalUserId,
+                provider,
+                connectionId,
+                subdomain,
+                method,
+                path,
+                headers,
+                query,
+                body,
+                timeoutMs,
+                idempotencyKey,
+            },
+            idempotencyKey,
+            timeoutMs,
+            ...requestOptions,
+        })
+    }
+
     private async request<T>(path: string, { method, body, ...requestOptions }: { method: string, body?: unknown } & ConnectRequestOptions): Promise<T> {
         return transport.request<T>({
             url: `${this.baseUrl}${path}`,
@@ -174,3 +210,9 @@ export type ExecuteParams = Omit<ExecuteRequestContract, 'projectId'> & ConnectR
 export type DeleteConnectionParams = {
     connectionId: string
 } & ConnectRequestOptions
+
+export type ConnectProxyParams = Omit<import('./api-types').ConnectProxyRequest, 'projectId'> & ConnectRequestOptions
+
+export type ConnectProxyResult = import('./api-types').ConnectProxyResponse
+
+export type { ConnectProxyRequest, ConnectProxyResponse, ProxyHttpMethod } from './api-types'
