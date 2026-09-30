@@ -1,9 +1,12 @@
 import { ActivepiecesError, apId, chunk, Cursor, ErrorCode, isNil, SeekPage } from '@inboxfm-connect/core-utils'
 import { Cell, CreateRecordsRequest, Field, Filter, FilterOperator, PopulatedRecord, TableWebhookEventType, UpdateRecordRequest } from '@inboxfm-connect/shared'
 import { FastifyBaseLogger } from 'fastify'
-import { EntityManager, In } from 'typeorm'
+import { EntityManager, In, SelectQueryBuilder } from 'typeorm'
 import { repoFactory } from '../../core/db/repo-factory'
 import { transaction } from '../../core/db/transaction'
+import { buildPaginator } from '../../helper/pagination/build-paginator'
+import { paginationHelper } from '../../helper/pagination/pagination-utils'
+import { Order } from '../../helper/pagination/paginator'
 import { system } from '../../helper/system/system'
 import { AppSystemProp } from '../../helper/system/system-props'
 import { FieldEntity } from '../field/field.entity'
@@ -67,32 +70,65 @@ export const recordService = {
     async list({
         tableId,
         projectId,
+        cursorRequest,
         filters,
         limit,
         fields: prefetchedFields,
     }: ListParams): Promise<SeekPage<PopulatedRecord>> {
+        const decodedCursor = paginationHelper.decodeCursor(cursorRequest)
+
+        const paginator = buildPaginator({
+            entity: RecordEntity,
+            query: {
+                limit,
+                order: 'ASC',
+                afterCursor: decodedCursor.nextCursor,
+                beforeCursor: decodedCursor.previousCursor,
+                orderBy: [
+                    { field: 'created', order: Order.ASC },
+                    { field: 'id', order: Order.ASC },
+                ],
+            },
+        })
+
+        const queryBuilder = recordRepo()
+            .createQueryBuilder('record')
+            .where({
+                projectId,
+                tableId,
+            })
+
+        if (filters && filters.length > 0) {
+            for (let i = 0; i < filters.length; i++) {
+                applyFilterToQueryBuilder(queryBuilder, filters[i], i)
+            }
+        }
+
+        const { data: pageRecords, cursor } = await paginator.paginate(queryBuilder)
+
+        if (pageRecords.length === 0) {
+            return paginationHelper.createPage([], cursor)
+        }
+
         const fields = prefetchedFields ?? await fieldService.getAll({
             tableId,
             projectId,
         })
-        const records = await recordRepo().find({
-            where: {
-                projectId,
-                tableId,
-            },
-            order: {
-                created: 'ASC',
-            },
-        })
 
-        const cells = await cellsRepo().find({
-            where: {
-                projectId,
-                fieldId: In(fields.map((field) => field.id)),
-                recordId: In(records.map((record) => record.id)),
-            },
-        })
-        const cellsByRecordId = new Map<string, typeof cells>()
+        const pageRecordIds = pageRecords.map((r) => r.id)
+        const fieldIds = fields.map((f) => f.id)
+
+        const cells = fieldIds.length > 0 && pageRecordIds.length > 0
+            ? await cellsRepo().find({
+                where: {
+                    projectId,
+                    fieldId: In(fieldIds),
+                    recordId: In(pageRecordIds),
+                },
+            })
+            : []
+
+        const cellsByRecordId = new Map<string, Cell[]>()
         for (const cell of cells) {
             const group = cellsByRecordId.get(cell.recordId)
             if (group) {
@@ -102,27 +138,18 @@ export const recordService = {
                 cellsByRecordId.set(cell.recordId, [cell])
             }
         }
-        for (const record of records) {
+        for (const record of pageRecords) {
             record.cells = cellsByRecordId.get(record.id) ?? []
         }
-        const filteredOutRecords = records.filter((record) => {
-            if (!filters || filters.length === 0) {
-                return true
-            }
-            return filters.every((filter) => {
-                const cell = record.cells.find(c => c.fieldId === filter.fieldId)
-                    ?? { fieldId: filter.fieldId, value: '' }
-                return doesCellValueMatchFilters(cell, [filter])
-            })
+
+        const populatedRecords = await formatRecordsAndFetchField({
+            records: pageRecords,
+            tableId,
+            projectId,
+            fields,
         })
 
-        const populatedRecords = await formatRecordsAndFetchField({ records: filteredOutRecords, tableId, projectId, fields })
-
-        return {
-            data: populatedRecords.slice(0, limit),
-            next: null,
-            previous: null,
-        }
+        return paginationHelper.createPage(populatedRecords, cursor)
     },
 
     async getById({
@@ -455,60 +482,122 @@ function formatRecords(records: RecordSchema[], fields: Field[]): PopulatedRecor
     })
 }
 
-function doesCellValueMatchFilters(cell: Pick<Cell, 'fieldId' | 'value'>, filters: Filter[]): boolean {
-    if (filters.length === 0) {
-        return true
-    }
-    return filters.every((filter) => {
-        if (filter.fieldId !== cell.fieldId) {
-            return true
-        }
-        switch (filter.operator) {
-            case FilterOperator.EXISTS: {
-                return cell.value !== null && cell.value !== ''
-            }
-            case FilterOperator.NOT_EXISTS: {
-                return cell.value === null || cell.value === ''
-            }
-            case FilterOperator.EQ: {
-                return cell.value === filter.value
-            }
-            case FilterOperator.NEQ: {
-                return cell.value !== filter.value
-            }
-            case FilterOperator.GT: {
-                return numberFilterValidator({ cellValue: cell.value, filterValue: filter.value, cb: ({ cellValue, filterValue }) => cellValue > filterValue })
-            }
-            case FilterOperator.GTE: {
-                return numberFilterValidator({ cellValue: cell.value, filterValue: filter.value, cb: ({ cellValue, filterValue }) => cellValue >= filterValue })
-            }
-            case FilterOperator.LT: {
-                return numberFilterValidator({ cellValue: cell.value, filterValue: filter.value, cb: ({ cellValue, filterValue }) => cellValue < filterValue })
-            }
-            case FilterOperator.LTE: {
-                return numberFilterValidator({ cellValue: cell.value, filterValue: filter.value, cb: ({ cellValue, filterValue }) => cellValue <= filterValue })
-            }
-            case FilterOperator.CO: {
-                if (typeof cell.value === 'string') {
-                    return cell.value.toLowerCase().includes(filter.value.toLowerCase())
-                }
-                return false
-            }
-        }
-    })
 
+const STRICT_NUMERIC_FILTER_REGEX = /^[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]{1,4})?$/
+
+function applyFilterToQueryBuilder(
+    qb: SelectQueryBuilder<RecordSchema>,
+    filter: Filter,
+    index: number,
+): void {
+    const fieldParam = `filter_field_${index}`
+    switch (filter.operator) {
+        case FilterOperator.EXISTS: {
+            qb.andWhere(
+                `EXISTS (
+                    SELECT 1 FROM cell
+                    WHERE cell."recordId" = record.id
+                      AND cell."fieldId" = :${fieldParam}
+                      AND cell."projectId" = record."projectId"
+                      AND cell.value IS NOT NULL
+                      AND cell.value != ''
+                )`,
+                { [fieldParam]: filter.fieldId },
+            )
+            break
+        }
+        case FilterOperator.NOT_EXISTS: {
+            qb.andWhere(
+                `NOT EXISTS (
+                    SELECT 1 FROM cell
+                    WHERE cell."recordId" = record.id
+                      AND cell."fieldId" = :${fieldParam}
+                      AND cell."projectId" = record."projectId"
+                      AND cell.value IS NOT NULL
+                      AND cell.value != ''
+                )`,
+                { [fieldParam]: filter.fieldId },
+            )
+            break
+        }
+        case FilterOperator.EQ: {
+            const valParam = `filter_val_${index}`
+            qb.andWhere(
+                `COALESCE((SELECT cell.value FROM cell WHERE cell."recordId" = record.id AND cell."fieldId" = :${fieldParam} AND cell."projectId" = record."projectId" LIMIT 1), '') = :${valParam}`,
+                {
+                    [fieldParam]: filter.fieldId,
+                    [valParam]: filter.value,
+                },
+            )
+            break
+        }
+        case FilterOperator.NEQ: {
+            const valParam = `filter_val_${index}`
+            qb.andWhere(
+                `COALESCE((SELECT cell.value FROM cell WHERE cell."recordId" = record.id AND cell."fieldId" = :${fieldParam} AND cell."projectId" = record."projectId" LIMIT 1), '') != :${valParam}`,
+                {
+                    [fieldParam]: filter.fieldId,
+                    [valParam]: filter.value,
+                },
+            )
+            break
+        }
+        case FilterOperator.CO: {
+            const patternParam = `filter_pattern_${index}`
+            const escaped = filter.value.replace(/([%_\\])/g, '\\$1')
+            qb.andWhere(
+                `COALESCE((SELECT cell.value FROM cell WHERE cell."recordId" = record.id AND cell."fieldId" = :${fieldParam} AND cell."projectId" = record."projectId" LIMIT 1), '') ILIKE :${patternParam}`,
+                {
+                    [fieldParam]: filter.fieldId,
+                    [patternParam]: `%${escaped}%`,
+                },
+            )
+            break
+        }
+        case FilterOperator.GT:
+        case FilterOperator.GTE:
+        case FilterOperator.LT:
+        case FilterOperator.LTE: {
+            const trimmedFilter = filter.value.trim()
+            if (!STRICT_NUMERIC_FILTER_REGEX.test(trimmedFilter)) {
+                qb.andWhere('1 = 0')
+                break
+            }
+            const sqlOp = filter.operator === FilterOperator.GT
+                ? '>'
+                : filter.operator === FilterOperator.GTE
+                    ? '>='
+                    : filter.operator === FilterOperator.LT
+                        ? '<'
+                        : '<='
+            const numParam = `filter_num_${index}`
+            // PostgreSQL / PGlite compatibility: Use ::numeric with a bounded regex guard
+            // to support arbitrary-precision numbers and prevent 22003 overflow errors on extreme values.
+            qb.andWhere(
+                `EXISTS (
+                    SELECT 1 FROM cell
+                    WHERE cell."recordId" = record.id
+                      AND cell."fieldId" = :${fieldParam}
+                      AND cell."projectId" = record."projectId"
+                      AND (
+                          CASE
+                              WHEN cell.value IS NOT NULL
+                               AND LENGTH(TRIM(cell.value)) <= 500
+                               AND TRIM(cell.value) ~ '^[-+]?([0-9]+(\\.[0-9]+)?|\\.[0-9]+)([eE][-+]?[0-9]{1,4})?$'
+                              THEN (TRIM(cell.value))::numeric
+                              ELSE NULL
+                          END
+                      ) ${sqlOp} :${numParam}::numeric
+                )`,
+                {
+                    [fieldParam]: filter.fieldId,
+                    [numParam]: trimmedFilter,
+                },
+            )
+            break
+        }
+    }
 }
 
-const numberFilterValidator = ({ cellValue, filterValue, cb }: { cellValue: unknown, filterValue: string, cb: ({ cellValue, filterValue }: { cellValue: number, filterValue: number }) => boolean }) => {
-    if (typeof cellValue === 'string' || typeof cellValue === 'number') {
-        const cv = parseFloat(cellValue as string)
-        const fv = parseFloat(filterValue)
-        if (isNaN(cv) || isNaN(fv)) {
-            return false
-        }
-        return cb({ cellValue: cv, filterValue: fv })
-    }
-    return false
-}
 
 
