@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { apiClient, ApiClientError } from './client'
+import { apiClient, ApiClient as ApiClientClass, ApiClientError } from './client'
 
 describe('ApiClient', () => {
   beforeEach(() => {
     localStorage.clear()
+    sessionStorage.clear()
     apiClient.setToken(null)
     apiClient.setProjectId(null)
     vi.restoreAllMocks()
@@ -14,14 +15,57 @@ describe('ApiClient', () => {
     expect(apiClient.getProjectId()).toBeNull()
   })
 
-  it('should store and retrieve auth token and project id', () => {
+  it('stores the session token in sessionStorage, not localStorage (issue #383)', () => {
     apiClient.setToken('test_token_123')
     apiClient.setProjectId('proj_abc')
 
     expect(apiClient.getToken()).toBe('test_token_123')
     expect(apiClient.getProjectId()).toBe('proj_abc')
-    expect(localStorage.getItem('ap-token')).toBe('test_token_123')
-    expect(localStorage.getItem('ap-project-id')).toBe('proj_abc')
+    // the 7-day credential must live in the tab-scoped store only
+    expect(sessionStorage.getItem('ap-token')).toBe('test_token_123')
+    expect(sessionStorage.getItem('ap-project-id')).toBe('proj_abc')
+    expect(localStorage.getItem('ap-token')).toBeNull()
+    expect(localStorage.getItem('ap-project-id')).toBeNull()
+  })
+
+  it('clears a legacy localStorage token left by an older build on sign-out', () => {
+    localStorage.setItem('ap-token', 'stale_legacy_token')
+    localStorage.setItem('ap-project-id', 'stale_legacy_project')
+
+    apiClient.setToken(null)
+    apiClient.setProjectId(null)
+
+    expect(localStorage.getItem('ap-token')).toBeNull()
+    expect(localStorage.getItem('ap-project-id')).toBeNull()
+  })
+
+  it('adopts a legacy localStorage session on first load and purges the exposed copy (review #384)', () => {
+    // The upgrading user keeps working: the constructor moves their legacy
+    // token into sessionStorage, keeps the session, and deletes the
+    // world-readable copy in the same breath.
+    localStorage.setItem('ap-token', 'legacy_session_token')
+    localStorage.setItem('ap-project-id', 'legacy_project')
+
+    const fresh = new ApiClientClass()
+
+    expect(fresh.getToken()).toBe('legacy_session_token')
+    expect(fresh.getProjectId()).toBe('legacy_project')
+    expect(sessionStorage.getItem('ap-token')).toBe('legacy_session_token')
+    expect(sessionStorage.getItem('ap-project-id')).toBe('legacy_project')
+    expect(localStorage.getItem('ap-token')).toBeNull()
+    expect(localStorage.getItem('ap-project-id')).toBeNull()
+  })
+
+  it('purges leftover legacy keys even when a session already exists in sessionStorage (review #384)', () => {
+    // A second tab may have adopted the session first; this tab must still
+    // delete the parked credential.
+    sessionStorage.setItem('ap-token', 'current_session')
+    localStorage.setItem('ap-token', 'stale_legacy_token')
+
+    const fresh = new ApiClientClass()
+
+    expect(fresh.getToken()).toBe('current_session')
+    expect(localStorage.getItem('ap-token')).toBeNull()
   })
 
   it('should throw ApiClientError on non-200 responses', async () => {
