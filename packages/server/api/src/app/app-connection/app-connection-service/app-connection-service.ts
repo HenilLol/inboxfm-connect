@@ -64,11 +64,13 @@ async function runUpsertExclusiveOrWithoutLock<T>({ externalId, scope, platformI
                 try {
                     return await fn()
                 }
-                catch (error) {
-                    // Distinguish "fn failed" (propagate, never retry) from
-                    // "lock infrastructure failed" (fail open below).
+                finally {
+                    // Mark settled on EVERY exit path (throw AND success), not
+                    // just the throw path: a lock-infra error surfacing after a
+                    // successful fn (e.g. a release failure propagating out of
+                    // RedLock's using()) must not take the fail-open branch and
+                    // run fn a second time. (Reviewer hardening, #410 round 2.)
                     fnSettled = true
-                    throw error
                 }
             },
         })
