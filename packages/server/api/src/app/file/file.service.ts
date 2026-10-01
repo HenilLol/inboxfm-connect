@@ -333,6 +333,9 @@ export const fileService = (log: FastifyBaseLogger) => ({
                     break
                 }
 
+                const s3Keys = staleFiles.filter(f => !isNil(f.s3Key)).map(f => f.s3Key!)
+                await s3Helper(log).deleteFiles(s3Keys)
+
                 const result = await fileRepo().delete({
                     id: In(staleFiles.map(file => file.id)),
                 })
