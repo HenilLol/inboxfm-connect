@@ -11,6 +11,8 @@ import { generateMockToken } from '../../../helpers/auth'
 import { db } from '../../../helpers/db'
 import { createMockFile, createMockPieceMetadata, mockAndSaveBasicSetup } from '../../../helpers/mocks'
 import { setupTestEnvironment, teardownTestEnvironment } from '../../../helpers/test-setup'
+import * as s3HelperModule from '../../../../src/app/file/s3-helper'
+import { pieceBundleCache } from '../../../../src/app/pieces/piece-bundle-controller'
 
 const localDistState = vi.hoisted(() => ({ distPath: '' }))
 
@@ -204,6 +206,109 @@ describe('Piece Bundle Endpoint', () => {
 
         const otherPlatformResponse = await app!.inject(byArchive(tokenB))
         expect(otherPlatformResponse.statusCode).toBe(StatusCodes.NOT_FOUND)
+    })
+
+    it('invalidates cached local dist tarball when package.json mtime changes', async () => {
+        const { mockPlatform, mockProject } = await mockAndSaveBasicSetup()
+        await db.save('integration_metadata', createMockPieceMetadata({
+            name: '@inboxfm-connect/piece-local-dist',
+            version: '1.0.0',
+            packageType: PackageType.REGISTRY,
+            pieceType: PieceType.OFFICIAL,
+            platformId: undefined,
+        }))
+        const token = await engineToken(mockProject.id, mockPlatform.id)
+
+        const res1 = await app!.inject(
+            bundleRequest('@inboxfm-connect/piece-local-dist', '1.0.0', token),
+        )
+        expect(res1.statusCode).toBe(StatusCodes.OK)
+        const tar1 = gunzipSync(res1.rawPayload)
+        const manifest1 = JSON.parse(extractFileFromTar(tar1, 'package/package.json') ?? '{}')
+        expect(manifest1['version']).toBe('1.0.0')
+
+        // Rebuild in place: update package.json with a new mtime and description
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        await writeFile(join(localDistState.distPath, 'package.json'), JSON.stringify({
+            name: '@inboxfm-connect/piece-local-dist',
+            version: '1.0.0',
+            main: './dist/src/index.js',
+            description: 'updated-after-rebuild',
+            dependencies: {
+                lodash: '^4.17.21',
+            },
+        }))
+
+        const res2 = await app!.inject(
+            bundleRequest('@inboxfm-connect/piece-local-dist', '1.0.0', token),
+        )
+        expect(res2.statusCode).toBe(StatusCodes.OK)
+        const tar2 = gunzipSync(res2.rawPayload)
+        const manifest2 = JSON.parse(extractFileFromTar(tar2, 'package/package.json') ?? '{}')
+        expect(manifest2['description']).toBe('updated-after-rebuild')
+    })
+
+    it('enforces entry count and byte budgets with LRU eviction', () => {
+        pieceBundleCache.clear()
+        expect(pieceBundleCache.size()).toBe(0)
+        expect(pieceBundleCache.totalBytes()).toBe(0)
+
+        for (let i = 0; i < pieceBundleCache.maxEntries; i++) {
+            pieceBundleCache.set(`key-${i}`, Buffer.alloc(100, i))
+        }
+        expect(pieceBundleCache.size()).toBe(20)
+        expect(pieceBundleCache.totalBytes()).toBe(2000)
+
+        // Adding one more entry evicts the oldest entry (key-0)
+        pieceBundleCache.set('key-20', Buffer.alloc(100, 20))
+        expect(pieceBundleCache.size()).toBe(20)
+        expect(pieceBundleCache.get('key-0')).toBeUndefined()
+        expect(pieceBundleCache.get('key-20')).toBeDefined()
+
+        // Huge entry exceeds maxBytes and is rejected from caching
+        pieceBundleCache.set('huge', Buffer.alloc(pieceBundleCache.maxBytes + 1))
+        expect(pieceBundleCache.get('huge')).toBeUndefined()
+
+        pieceBundleCache.clear()
+    })
+
+    it('returns 404 when an S3-backed archive object does not exist in S3', async () => {
+        const s3Spy = vi.spyOn(s3HelperModule, 's3Helper').mockImplementation((log) => {
+            const original = s3HelperModule.s3Helper(log)
+            return {
+                ...original,
+                getFile: vi.fn(async () => {
+                    throw new Error('NoSuchKey: The specified key does not exist.')
+                }),
+            }
+        })
+        try {
+            const { mockPlatform, mockProject } = await mockAndSaveBasicSetup()
+            const archiveId = apId()
+            await db.save('file', createMockFile({
+                id: archiveId,
+                platformId: mockPlatform.id,
+                projectId: null,
+                type: FileType.PACKAGE_ARCHIVE,
+                location: FileLocation.S3,
+                compression: FileCompression.NONE,
+                s3Key: 'deleted-archive.tar.gz',
+            }))
+
+            const token = await engineToken(mockProject.id, mockPlatform.id)
+            const response = await app!.inject({
+                method: 'GET',
+                url: `/api/v1/engine/pieces/bundle?archiveId=${archiveId}`,
+                headers: { authorization: `Bearer ${token}` },
+            })
+
+            expect(response.statusCode).toBe(StatusCodes.NOT_FOUND)
+            const body = response.json()
+            expect(body.code).toBe('ENTITY_NOT_FOUND')
+        }
+        finally {
+            s3Spy.mockRestore()
+        }
     })
 })
 
