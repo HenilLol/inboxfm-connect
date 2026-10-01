@@ -30,6 +30,15 @@ beforeAll(async () => {
     await writeFile(join(localDistState.distPath, 'package.json'), JSON.stringify({
         name: '@inboxfm-connect/piece-local-dist',
         version: '1.0.0',
+        main: './dist/src/index.js',
+        dependencies: {
+            '@inboxfm-connect/pieces-framework': 'workspace:*',
+            '@inboxfm-connect/pieces-common': 'workspace:*',
+            lodash: '^4.17.21',
+        },
+        devDependencies: {
+            vitest: '3.2.6',
+        },
     }))
     await writeFile(join(localDistState.distPath, 'src', 'index.js'), 'module.exports = {}\n')
 })
@@ -98,6 +107,20 @@ describe('Piece Bundle Endpoint', () => {
         const tar = gunzipSync(response.rawPayload)
         expect(tar.includes('package/package.json')).toBe(true)
         expect(tar.includes('package/src/index.js')).toBe(true)
+
+        const manifestContent = extractFileFromTar(tar, 'package/package.json')
+        expect(manifestContent).not.toBeNull()
+        const manifest = JSON.parse(manifestContent ?? '{}') as {
+            main?: string
+            dependencies?: Record<string, string>
+            devDependencies?: unknown
+        }
+        expect(manifest.main).toBe('./src/index.js')
+        expect(manifest.dependencies).toEqual({ lodash: '4.17.21' })
+        expect(manifest.devDependencies).toBeUndefined()
+        expect(manifestContent).not.toContain('workspace:')
+        expect(manifestContent).not.toContain('@inboxfm-connect/pieces-framework')
+        expect(manifestContent).not.toContain('@inboxfm-connect/pieces-common')
     })
 
     it('falls back to the npm tarball when the local dist version does not match', async () => {
@@ -183,3 +206,24 @@ describe('Piece Bundle Endpoint', () => {
         expect(otherPlatformResponse.statusCode).toBe(StatusCodes.NOT_FOUND)
     })
 })
+
+function extractFileFromTar(tarBuffer: Buffer, fileName: string): string | null {
+    let offset = 0
+    while (offset + 512 <= tarBuffer.length) {
+        const header = tarBuffer.subarray(offset, offset + 512)
+        if (header.every((b) => b === 0)) {
+            break
+        }
+        const name = header.subarray(0, 100).toString('ascii').replace(/\0+$/, '')
+        const sizeOctal = header.subarray(124, 136).toString('ascii').replace(/\0+$/, '').trim()
+        const size = parseInt(sizeOctal, 8)
+        offset += 512
+        if (name === fileName) {
+            return tarBuffer.subarray(offset, offset + size).toString('utf-8')
+        }
+        const padding = size % 512 === 0 ? 0 : 512 - (size % 512)
+        offset += size + padding
+    }
+    return null
+}
+

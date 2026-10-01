@@ -15,7 +15,10 @@ export async function packDistToTarball({ distPath }: PackDistParams): Promise<B
             blocks.push(headerBlock({ name: entryName, size: 0, isDirectory: true }))
             continue
         }
-        const data = await readFile(entry.absolutePath)
+        let data = await readFile(entry.absolutePath)
+        if (entry.relativePath === 'package.json') {
+            data = rewriteManifestForTarball(data)
+        }
         blocks.push(headerBlock({ name: entryName, size: data.length, isDirectory: false }))
         blocks.push(data)
         const padding = data.length % BLOCK_SIZE
@@ -105,6 +108,55 @@ const writeAscii = ({ buffer, offset, value }: WriteAsciiParams): void => {
 const writeOctal = ({ buffer, offset, width, value }: WriteOctalParams): void => {
     buffer.write(value.toString(8).padStart(width - 1, '0'), offset)
     buffer[offset + width - 1] = 0
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null
+}
+
+function rewriteManifestForTarball(rawContent: Buffer): Buffer {
+    try {
+        const text = rawContent.toString('utf-8')
+        const parsed: unknown = JSON.parse(text)
+        if (!isRecord(parsed)) {
+            return rawContent
+        }
+
+        if (typeof parsed['main'] === 'string') {
+            parsed['main'] = parsed['main'].replace(/^(\.\/)?dist\//, './')
+        }
+        else {
+            parsed['main'] = './src/index.js'
+        }
+
+        if (typeof parsed['types'] === 'string') {
+            parsed['types'] = parsed['types'].replace(/^(\.\/)?dist\//, './')
+        }
+
+        const dependencies: Record<string, string> = {}
+        const rawDeps = parsed['dependencies']
+        if (isRecord(rawDeps)) {
+            for (const [dep, version] of Object.entries(rawDeps)) {
+                const isWorkspace = typeof version === 'string' && version.startsWith('workspace:')
+                const isInternal = dep.startsWith('@inboxfm-connect/')
+                if (isInternal || typeof version !== 'string' || isWorkspace) {
+                    continue
+                }
+                dependencies[dep] = version.replace(/^[\^~]/, '')
+            }
+        }
+        parsed['dependencies'] = dependencies
+
+        delete parsed['devDependencies']
+        delete parsed['peerDependencies']
+        delete parsed['scripts']
+        delete parsed['bundleDeps']
+
+        return Buffer.from(JSON.stringify(parsed, null, 2) + '\n', 'utf-8')
+    }
+    catch {
+        return rawContent
+    }
 }
 
 const BLOCK_SIZE = 512
