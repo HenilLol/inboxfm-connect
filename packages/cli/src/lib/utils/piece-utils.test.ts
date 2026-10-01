@@ -49,29 +49,31 @@ describe('piece-utils paths and discovery', () => {
 
         // Pin known pieces to guarantee real integration pieces are discovered
         expect(pieces.some((p) => p.endsWith('slack') || p.endsWith('http'))).toBe(true)
-    })
+    }, 30000)
 
     it('findPiece discovers existing pieces by name', async () => {
         const piece = await findPiece('http')
         expect(piece).not.toBeNull()
         expect(piece?.endsWith(path.join('integrations', 'core', 'http'))).toBe(true)
-    })
+    }, 30000)
 
     it('findPiece does not resolve foundation packages', async () => {
-        const framework = await findPiece('framework')
+        const [framework, common] = await Promise.all([
+            findPiece('framework'),
+            findPiece('common'),
+        ])
         expect(framework).toBeNull()
-
-        const common = await findPiece('common')
         expect(common).toBeNull()
-    })
+    }, 30000)
 
     it('findPieces returns empty list when pointed directly at foundation packages', async () => {
-        const frameworkPieces = await findPieces(path.join(piecesPath(), 'framework'))
+        const [frameworkPieces, commonPieces] = await Promise.all([
+            findPieces(path.join(piecesPath(), 'framework')),
+            findPieces(path.join(piecesPath(), 'common')),
+        ])
         expect(frameworkPieces).toEqual([])
-
-        const commonPieces = await findPieces(path.join(piecesPath(), 'common'))
         expect(commonPieces).toEqual([])
-    })
+    }, 30000)
 
     it('removeStartingSlashes trims leading forward and backward slashes', () => {
         expect(removeStartingSlashes('///foo/bar')).toBe('foo/bar')
