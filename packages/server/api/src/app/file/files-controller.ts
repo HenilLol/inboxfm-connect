@@ -24,6 +24,7 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
             const fileId = (request.params as { fileId: string }).fileId
             const token = (request.query as { token: string }).token
             const principal = await verifyEnginePrincipal(token, request.log)
+            const { projectId, platform } = principal
             const fileType = parseFileTypeHeader(request.headers[fileTransportHeaders.TYPE])
             const fileName = parseStringHeader(request.headers[fileTransportHeaders.NAME])
             const contentEncoding = parseStringHeader(request.headers['content-encoding'])
@@ -45,8 +46,8 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
             // read URL — the claim runs before the read-URL is minted.
             const file = await fileService(request.log).saveEngineOwned({
                 fileId,
-                projectId: principal.projectId,
-                platformId: principal.platform.id,
+                projectId,
+                platformId: platform.id,
                 type: fileType,
                 fileName,
                 compression,
@@ -57,7 +58,7 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
             const readUrl = await filesService.constructReadUrl({
                 fileId,
                 fileType,
-                platformId: principal.platform.id,
+                platformId: platform.id,
             })
             void reply.header(fileTransportHeaders.READ_URL, readUrl)
 
@@ -79,6 +80,7 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
     }, async (request, reply) => {
         const { fileId } = request.params
         const principal = await verifyEnginePrincipal(request.query.token, request.log)
+        const { projectId, platform } = principal
         const fileType = parseFileTypeHeader(request.headers[fileTransportHeaders.TYPE])
         const fileName = parseStringHeader(request.headers[fileTransportHeaders.NAME])
         const contentEncoding = parseStringHeader(request.headers['content-encoding'])
@@ -88,8 +90,8 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
         assertNotNullOrUndefined(data, 'body')
         const savedFile = await fileService(request.log).saveEngineOwned({
             fileId,
-            projectId: principal.projectId,
-            platformId: principal.platform.id,
+            projectId,
+            platformId: platform.id,
             type: fileType,
             fileName,
             compression,
@@ -99,7 +101,7 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
         const readUrl = await filesService.constructReadUrl({
             fileId: savedFile.id,
             fileType,
-            platformId: principal.platform.id,
+            platformId: platform.id,
         })
         // The transport contract mirrors the S3-redirect branch: the read-URL header
         // is only minted after the ownership claim, so a rejected PUT never leaks a
