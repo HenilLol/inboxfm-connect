@@ -247,28 +247,40 @@ export const scimUserService = (log: FastifyBaseLogger) => ({
                 }
             }
             else if ( op === 'add') {
+                // Providers spell the custom-attribute sub-attribute path both
+                // ways in the wild: RFC 7644 attribute notation (colon-separated)
+                // and a dotted variant. Accept either, validate the role once,
+                // and ignore every other unknown add path per RFC 7644 §3.5.2
+                // instead of falling through with an empty pending-fields object.
                 const path = operation.path as string
-                addOperationFields = addOperationFields ?? {}
+                const isPlatformRolePath = path === `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}:platformRole` || path === `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}.platformRole`
 
-                if (path === `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}.platformRole` && !isEnumValue(PlatformRole, operation.value as string)) {
-                    throw new Error(`Invalid platform role: ${operation.value}`)
+                if (isPlatformRolePath) {
+                    if (!isEnumValue(PlatformRole, operation.value as string)) {
+                        throw new Error(`Invalid platform role: ${operation.value}`)
+                    }
+                    addOperationFields = addOperationFields ?? {}
+                    addOperationFields['platformRole'] = operation.value as PlatformRole
                 }
-                switch (path) {
-                    case `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}:platformRole`:
-                        addOperationFields['platformRole'] = operation.value as PlatformRole
-                        break
-                    case 'name.givenName':
-                        addOperationFields['firstName'] = operation.value as string
-                        break
-                    case 'name.familyName':
-                        addOperationFields['lastName'] = operation.value as string
-                        break
-                    case 'externalId':
-                        addOperationFields['externalId'] = operation.value as string
-                        break
-                    case 'active':
-                        addOperationFields['active'] = operation.value as boolean
-                        break
+                else {
+                    switch (path) {
+                        case 'name.givenName':
+                            addOperationFields = addOperationFields ?? {}
+                            addOperationFields['firstName'] = operation.value as string
+                            break
+                        case 'name.familyName':
+                            addOperationFields = addOperationFields ?? {}
+                            addOperationFields['lastName'] = operation.value as string
+                            break
+                        case 'externalId':
+                            addOperationFields = addOperationFields ?? {}
+                            addOperationFields['externalId'] = operation.value as string
+                            break
+                        case 'active':
+                            addOperationFields = addOperationFields ?? {}
+                            addOperationFields['active'] = operation.value as boolean
+                            break
+                    }
                 }
             }
         }
