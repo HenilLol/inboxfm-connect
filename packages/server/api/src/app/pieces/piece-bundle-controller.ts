@@ -50,17 +50,55 @@ export const pieceBundleController: FastifyPluginAsyncZod = async (fastify) => {
                 return reply.header('content-type', 'application/gzip').send(data)
             }
             case 'local-dist': {
-                const tarball = await packDistToTarball({ distPath: resolution.distPath })
+                const cacheKey = resolution.distPath
+                let tarball = getCachedTarball(cacheKey)
+                if (isNil(tarball)) {
+                    tarball = await packDistToTarball({ distPath: resolution.distPath })
+                    setCachedTarball(cacheKey, tarball)
+                }
                 return reply.header('content-type', 'application/gzip').send(tarball)
             }
         }
     })
 }
 
+const MAX_LOCAL_PIECE_CACHE_ENTRIES = 50
+const localPieceTarballCache = new Map<string, Buffer>()
+
+function getCachedTarball(key: string): Buffer | undefined {
+    const cached = localPieceTarballCache.get(key)
+    if (!isNil(cached)) {
+        localPieceTarballCache.delete(key)
+        localPieceTarballCache.set(key, cached)
+    }
+    return cached
+}
+
+function setCachedTarball(key: string, data: Buffer): void {
+    if (localPieceTarballCache.has(key)) {
+        localPieceTarballCache.delete(key)
+    }
+    else if (localPieceTarballCache.size >= MAX_LOCAL_PIECE_CACHE_ENTRIES) {
+        const oldestKey = localPieceTarballCache.keys().next().value
+        if (typeof oldestKey === 'string') {
+            localPieceTarballCache.delete(oldestKey)
+        }
+    }
+    localPieceTarballCache.set(key, data)
+}
+
 // Scoped by platformId (not projectId) because piece archives are platform-level assets —
 // one platform must never read another platform's private archive.
-const readPlatformArchiveBytes = async ({ archiveId, platformId, log }: ReadPlatformArchiveBytesParams): Promise<Buffer> => {
-    const file = await fileRepo().findOneBy({ id: archiveId, platformId, type: FileType.PACKAGE_ARCHIVE })
+const readPlatformArchiveBytes = async ({
+    archiveId,
+    platformId,
+    log,
+}: ReadPlatformArchiveBytesParams): Promise<Buffer> => {
+    const file = await fileRepo().findOneBy({
+        id: archiveId,
+        platformId,
+        type: FileType.PACKAGE_ARCHIVE,
+    })
     if (isNil(file)) {
         throw new ActivepiecesError({
             code: ErrorCode.ENTITY_NOT_FOUND,
@@ -71,8 +109,26 @@ const readPlatformArchiveBytes = async ({ archiveId, platformId, log }: ReadPlat
             },
         })
     }
+    let rawData: Buffer
+    if (file.location === FileLocation.DB) {
+        rawData = file.data
+    }
+    else {
+        const s3Key = file.s3Key
+        if (isNil(s3Key)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.ENTITY_NOT_FOUND,
+                params: {
+                    entityType: 'file',
+                    entityId: archiveId,
+                    message: 'File S3 key not found',
+                },
+            })
+        }
+        rawData = await s3Helper(log).getFile(s3Key)
+    }
     const data = await fileCompressor.decompress({
-        data: file.location === FileLocation.DB ? file.data : await s3Helper(log).getFile(file.s3Key!),
+        data: rawData,
         compression: file.compression,
     })
     return data
