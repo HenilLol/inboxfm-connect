@@ -87,6 +87,7 @@ import { startDevPieceWatcher } from './pieces/dev-piece-watcher'
 import { pieceModule } from './pieces/metadata/piece-metadata-controller'
 import { pieceMetadataService } from './pieces/metadata/piece-metadata-service'
 import { pieceFilteringHooks } from './pieces/metadata/utils/piece-filtering-hooks'
+import { pieceBundleModule } from './pieces/piece-bundle-module'
 import { pieceSyncService } from './pieces/piece-sync-service'
 import { platformBackgroundJobs } from './platform/platform-jobs'
 import { platformModule } from './platform/platform.module'
@@ -203,6 +204,7 @@ export const setupApp = async (app: FastifyInstance): Promise<FastifyInstance> =
     rejectedPromiseHandler(toolSearchReindexJob(app.log).backfillIfEmpty(), app.log)
     await pieceMetadataService(app.log).setup()
     await app.register(pieceModule)
+    await app.register(pieceBundleModule)
     // await app.register(collaborativeModule)
     // await app.register(flowModule)
     // await app.register(flowRunModule)

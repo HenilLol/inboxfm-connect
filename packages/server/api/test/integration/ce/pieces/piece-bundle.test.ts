@@ -1,16 +1,37 @@
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { gunzipSync } from 'node:zlib'
 import { apId } from '@inboxfm-connect/core-utils'
 import { FileCompression, FileLocation, FileType, PackageType, PieceType, Principal, PrincipalType } from '@inboxfm-connect/shared'
 import { FastifyInstance } from 'fastify'
 import { StatusCodes } from 'http-status-codes'
+import { vi } from 'vitest'
 import { generateMockToken } from '../../../helpers/auth'
 import { db } from '../../../helpers/db'
 import { createMockFile, createMockPieceMetadata, mockAndSaveBasicSetup } from '../../../helpers/mocks'
 import { setupTestEnvironment, teardownTestEnvironment } from '../../../helpers/test-setup'
 
+const localDistState = vi.hoisted(() => ({ distPath: '' }))
+
+vi.mock('../../../../src/app/pieces/metadata/utils/file-pieces-utils', () => ({
+    filePiecesUtils: () => ({
+        findDistPiecePathByPackageName: async (packageName: string) =>
+            packageName === '@inboxfm-connect/piece-local-dist' ? localDistState.distPath || null : null,
+    }),
+}))
+
 let app: FastifyInstance | null = null
 
 beforeAll(async () => {
     app = await setupTestEnvironment()
+    localDistState.distPath = await mkdtemp(join(tmpdir(), 'piece-bundle-dist-'))
+    await mkdir(join(localDistState.distPath, 'src'), { recursive: true })
+    await writeFile(join(localDistState.distPath, 'package.json'), JSON.stringify({
+        name: '@inboxfm-connect/piece-local-dist',
+        version: '1.0.0',
+    }))
+    await writeFile(join(localDistState.distPath, 'src', 'index.js'), 'module.exports = {}\n')
 })
 
 afterAll(async () => {
@@ -35,18 +56,7 @@ function bundleRequest(name: string, version: string, token: string) {
     }
 }
 
-/**
- * SUSPENDED — the `GET /v1/engine/pieces/bundle` route is not mounted.
- *
- * The `pieceBundle` service (`pieces/piece-bundle.ts`) is fully implemented and still
- * registers its BUNDLE_PIECE job handler, but no controller wires the engine bundle
- * HTTP route, so every request 404s. This is an engine-internal tarball-fetch surface
- * (not part of the developer console) that appears to have been dropped in the
- * migration, parallel to how `mcpServerModule` was left unregistered. Kept rather than
- * deleted because the service exists and the route is expected to return; re-enable by
- * wiring the bundle controller and restoring `describe`.
- */
-describe.skip('Piece Bundle Endpoint', () => {
+describe('Piece Bundle Endpoint', () => {
     it('rejects an invalid engine token with 401', async () => {
         const response = await app!.inject(bundleRequest('@inboxfm-connect/piece-anything', '1.0.0', 'not-a-real-token'))
         expect(response.statusCode).toBe(StatusCodes.UNAUTHORIZED)
@@ -68,6 +78,44 @@ describe.skip('Piece Bundle Endpoint', () => {
         expect(response.statusCode).toBe(StatusCodes.TEMPORARY_REDIRECT)
         expect(response.headers.location).toContain('registry.npmjs.org')
         expect(response.headers.location).toContain('piece-bundle-official-1.2.3.tgz')
+    })
+
+    it('serves a locally built dist as a tarball before falling back to npm', async () => {
+        const { mockPlatform, mockProject } = await mockAndSaveBasicSetup()
+        await db.save('integration_metadata', createMockPieceMetadata({
+            name: '@inboxfm-connect/piece-local-dist',
+            version: '1.0.0',
+            packageType: PackageType.REGISTRY,
+            pieceType: PieceType.OFFICIAL,
+            platformId: undefined,
+        }))
+        const token = await engineToken(mockProject.id, mockPlatform.id)
+
+        const response = await app!.inject(bundleRequest('@inboxfm-connect/piece-local-dist', '1.0.0', token))
+
+        expect(response.statusCode).toBe(StatusCodes.OK)
+        expect(response.headers['content-type']).toContain('application/gzip')
+        const tar = gunzipSync(response.rawPayload)
+        expect(tar.includes('package/package.json')).toBe(true)
+        expect(tar.includes('package/src/index.js')).toBe(true)
+    })
+
+    it('falls back to the npm tarball when the local dist version does not match', async () => {
+        const { mockPlatform, mockProject } = await mockAndSaveBasicSetup()
+        await db.save('integration_metadata', createMockPieceMetadata({
+            name: '@inboxfm-connect/piece-local-dist',
+            version: '9.9.9',
+            packageType: PackageType.REGISTRY,
+            pieceType: PieceType.OFFICIAL,
+            platformId: undefined,
+        }))
+        const token = await engineToken(mockProject.id, mockPlatform.id)
+
+        const response = await app!.inject(bundleRequest('@inboxfm-connect/piece-local-dist', '9.9.9', token))
+
+        expect(response.statusCode).toBe(StatusCodes.TEMPORARY_REDIRECT)
+        expect(response.headers.location).toContain('registry.npmjs.org')
+        expect(response.headers.location).toContain('piece-local-dist-9.9.9.tgz')
     })
 
     it('scopes custom pieces by the token platform: owner can fetch, other platform gets 404', async () => {
