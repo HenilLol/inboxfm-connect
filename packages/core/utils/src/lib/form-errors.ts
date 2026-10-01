@@ -5,6 +5,7 @@ export const formErrors = {
     invalidGitRepoRemoteUrl: 'invalidGitRepoRemoteUrl',
     invalidExternalId: 'invalidExternalId',
     invalidFileName: 'invalidFileName',
+    invalidHexColor: 'invalidHexColor',
     invalidBranchCondition: 'invalidBranchCondition',
     messageRequiresContentOrFiles: 'messageRequiresContentOrFiles',
     apiKeyExpiryMustBeFuture: 'apiKeyExpiryMustBeFuture',
@@ -12,4 +13,7 @@ export const formErrors = {
     activeFlowsLimitMax: 'activeFlowsLimitMax',
     invalidAiProviderBaseUrl: 'invalidAiProviderBaseUrl',
     invalidAiProviderApiKeyHeader: 'invalidAiProviderApiKeyHeader',
+    invalidCloudflareAccountId: 'invalidCloudflareAccountId',
+    invalidCloudflareGatewayId: 'invalidCloudflareGatewayId',
+    invalidAzureResourceName: 'invalidAzureResourceName',
 } as const

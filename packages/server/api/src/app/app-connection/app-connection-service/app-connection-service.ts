@@ -183,6 +183,17 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
             ...(projectIds ? { projectIds: ArrayContains(projectIds) } : {}),
         }
 
+        const existingConnection = await appConnectionsRepo().findOneBy(filter)
+        if (isNil(existingConnection)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.ENTITY_NOT_FOUND,
+                params: {
+                    entityType: 'AppConnection',
+                    entityId: id,
+                },
+            })
+        }
+
         await appConnectionsRepo().update(filter, {
             displayName: request.displayName,
             ...spreadIfDefined('projectIds', request.projectIds),
@@ -190,7 +201,16 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
             ...spreadIfDefined('preSelectForNewProjects', request.preSelectForNewProjects),
         })
 
-        const updatedConnection = await appConnectionsRepo().findOneByOrFail(filter)
+        const updatedConnection = await appConnectionsRepo().findOneBy(filter)
+        if (isNil(updatedConnection)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.ENTITY_NOT_FOUND,
+                params: {
+                    entityType: 'AppConnection',
+                    entityId: id,
+                },
+            })
+        }
         return this.removeSensitiveData(updatedConnection)
     },
     async testConnection({ id, projectId, platformId }: TestConnectionParams): Promise<TestConnectionResult> {
@@ -497,13 +517,18 @@ async function markConnectionTested({ id, status, testedAt, message }: {
     testedAt: string
     message?: string
 }): Promise<TestConnectionResult> {
-    // Read-then-write: a concurrent refresh, reconnect, or health check may
-    // have recorded a newer status after this test ran — never blindly
-    // overwrite it with a stale result.
-    const current = await appConnectionsRepo().findOneBy({ id })
-    if (!isNil(current) && current.status !== status) {
-        await appConnectionsRepo().update({ id }, { status })
-    }
+    // Plain, unconditional write. A previous revision guarded this with
+    // `current.status !== status` and claimed it avoided clobbering a newer
+    // result, but that condition is true precisely when the stored status
+    // differs - i.e. exactly the stale case - so the guard inverted its own
+    // intent while costing an extra SELECT. `testedAt` is not a persisted
+    // column, so there is nothing to compare an ordering against.
+    //
+    // Consequence, stated plainly: if two health checks race, the slower one
+    // can write its older verdict last. That is accepted - the next check
+    // self-heals the row, and a conditional write would need a persisted
+    // timestamp plus a compare-and-set to be any safer.
+    await appConnectionsRepo().update({ id }, { status })
     return { ok: status === AppConnectionStatus.ACTIVE, status, testedAt, message }
 }
 

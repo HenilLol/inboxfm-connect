@@ -16,6 +16,19 @@ import { RecordEntity, RecordSchema } from './record.entity'
 
 const MAX_BATCH_SIZE = 50
 
+// Bounded pagination for record listing (issue #400). MAX_PAGE_SIZE follows the
+// piece-metadata pagination convention; the service-level clamp bounds every
+// caller (REST querystring, MCP tool, piece sentinel) regardless of upstream
+// validation.
+const DEFAULT_PAGE_SIZE = 10
+const MAX_PAGE_SIZE = 500
+
+export function clampRecordListLimit(rawLimit: number | undefined): number {
+    // Mirrors the piece-metadata pagination convention: [1, MAX_PAGE_SIZE],
+    // falling back to the default when absent or non-numeric (issue #400).
+    return Math.max(1, Math.min(Math.floor(rawLimit ?? DEFAULT_PAGE_SIZE) || DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE))
+}
+
 const recordRepo = repoFactory(RecordEntity)
 const cellsRepo = repoFactory(CellEntity)
 
@@ -75,12 +88,17 @@ export const recordService = {
         limit,
         fields: prefetchedFields,
     }: ListParams): Promise<SeekPage<PopulatedRecord>> {
+        // Clamp first (issue #400): the request contract only coerces
+        // (z.coerce.number()), so REST callers can pass any number, and the
+        // tables piece sends a 999999999 sentinel for "no limit" - the clamp
+        // is the single boundary every caller passes through.
+        const boundedLimit = clampRecordListLimit(limit)
         const decodedCursor = paginationHelper.decodeCursor(cursorRequest)
 
         const paginator = buildPaginator({
             entity: RecordEntity,
             query: {
-                limit,
+                limit: boundedLimit,
                 order: 'ASC',
                 afterCursor: decodedCursor.nextCursor,
                 beforeCursor: decodedCursor.previousCursor,
@@ -254,6 +272,10 @@ export const recordService = {
         ids,
         projectId,
     }: DeleteParams): Promise<PopulatedRecord[]> {
+        if (isNil(ids) || ids.length === 0) {
+            return []
+        }
+
         const firstRecord = await recordRepo().findOne({
             where: { id: ids[0], projectId },
             select: ['tableId'],
