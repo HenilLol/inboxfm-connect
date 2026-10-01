@@ -115,6 +115,31 @@ describe('LocalScheduler Lifecycle & Resilience', () => {
                 error: expectedError,
             })
         })
+
+        it('safely catches exceptions thrown inside onError callback without uncaught throw', async () => {
+            const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+            try {
+                await LocalScheduler.once({
+                    name: 'test-once-throwing-onerror',
+                    delayMs: 10,
+                    fn: () => {
+                        throw new Error('Task error')
+                    },
+                    onError: () => {
+                        throw new Error('Callback failure')
+                    },
+                })
+
+                await expect(vi.advanceTimersByTimeAsync(40)).resolves.not.toThrow()
+                expect(consoleErrorSpy).toHaveBeenCalledWith(
+                    expect.stringContaining('[LocalScheduler] Error in onError handler'),
+                    expect.any(Error),
+                )
+            }
+            finally {
+                consoleErrorSpy.mockRestore()
+            }
+        })
     })
 
     describe('every() lifecycle & error recovery', () => {
