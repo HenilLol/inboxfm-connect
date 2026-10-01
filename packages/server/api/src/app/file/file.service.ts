@@ -69,7 +69,7 @@ async function saveEngineOwnedToDb(params: SaveEngineOwnedParams, baseFile: Base
             metadata: baseFile.metadata,
             created: baseFile.created,
             updated: baseFile.updated,
-            data: params.data,
+            data: params.data ?? undefined,
             location: FileLocation.DB,
         })
         .orIgnore()
@@ -112,7 +112,7 @@ async function claimEngineFileForUpdate(params: SaveEngineOwnedParams, baseFile:
             projectId: baseFile.projectId,
             platformId: baseFile.platformId,
             updated: baseFile.updated,
-            data: params.data,
+            data: params.data ?? undefined,
         })
         // The ownership predicate lives in the WHERE clause (#443): the row must
         // already be inside the principal's scope. The NULL-projectId branches are
@@ -203,7 +203,7 @@ export const fileService = (log: FastifyBaseLogger) => ({
                 const claimedFile = await saveEngineOwnedToDb({
                     ...params,
                     data: null,
-                })
+                }, baseFile)
                 if (!isNil(params.data)) {
                     const s3Key = !isNil(claimedFile.s3Key) ? claimedFile.s3Key : await s3Helper(log).constructS3Key(params.platformId, params.projectId, params.type, params.fileId)
                     await s3Helper(log).uploadFile(s3Key, params.data)
