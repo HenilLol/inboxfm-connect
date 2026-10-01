@@ -1,7 +1,4 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import DevelopersPage from './index'
 import { buildRestSnippet } from './snippets'
@@ -91,11 +88,8 @@ describe('developers REST snippet', () => {
   })
 
   it.skipIf(!bashWorks())('passes bash -n', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'rest-snippet-'))
-    const file = path.join(dir, 'rest-snippet.sh')
-    writeFileSync(file, `${buildRestSnippet({ origin: 'https://connect.example.com' })}\n`, 'utf-8')
-    const result = spawnSync('bash', ['-n', file], { encoding: 'utf8' })
-    rmSync(dir, { recursive: true, force: true })
+    const snippet = `${buildRestSnippet({ origin: 'https://connect.example.com' })}\n`
+    const result = spawnSync('bash', ['-n'], { input: snippet, encoding: 'utf8' })
     expect(result.stderr).toBe('')
     expect(result.status).toBe(0)
   })
