@@ -45,3 +45,14 @@ This file tracks the sequential issues discovered, implemented, tested, audited,
   - `turbo run build --filter=api`: 17 tasks passed (0 errors)
 - **Known Limitations**: None.
 - **Timestamp**: 2026-09-28T12:17:35+05:30
+
+### Issue #141: `tests: core libs are thin — wire core/execution into test-unit and raise shared/execution coverage`
+- **Status**: Verified / Ready for PR
+- **Branch**: `test/core-execution-and-shared-coverage`
+- **Tests**:
+  - `@inboxfm-connect/core-execution`: 5 files, 41 passed (41)
+  - `@inboxfm-connect/shared`: 14 files, 441 passed (441)
+  - `npm run test-unit`: 23 tasks passed
+  - `turbo run lint`: 0 errors
+- **Known Limitations**: None.
+- **Timestamp**: 2026-10-01T22:12:00+05:30
