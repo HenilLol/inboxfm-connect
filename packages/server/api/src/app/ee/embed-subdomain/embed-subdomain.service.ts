@@ -92,6 +92,7 @@ export const embedSubdomainService = (log: FastifyBaseLogger) => ({
         const cloudflareStatus = statusResult.data
         const newStatus = mapCloudflareStatus({ status: cloudflareStatus.status, sslStatus: cloudflareStatus.sslStatus })
 
+
         const recordsChanged = JSON.stringify(record.verificationRecords) !== JSON.stringify(cloudflareStatus.verificationRecords)
         if (newStatus !== record.status || recordsChanged) {
             log.info({ platform: { id: platformId }, oldStatus: record.status, newStatus, cloudflareStatus: cloudflareStatus.status, sslStatus: cloudflareStatus.sslStatus }, 'Embed hostname status refreshed')
@@ -177,12 +178,19 @@ async function upsertLocked({ platformId, hostname, log }: { platformId: string,
     }
     catch (error) {
         // The unique indexes on hostname and platformId remain the final
-        // guard. If the save loses a race that slipped past the lock
-        // (fail-open window), the just-created Cloudflare custom hostname
-        // would be orphaned forever - hostnameExists then reports this
-        // hostname as permanently taken, and it keeps billing. Delete it
+        // guard. ONLY a save that lost a unique-index race may take this
+        // branch: there the just-created Cloudflare custom hostname would
+        // be orphaned forever (hostnameExists then reports this hostname
+        // as permanently taken, and it keeps billing), so it is deleted
         // best-effort before rethrowing a 409 VALIDATION instead of the
-        // raw TypeORM QueryFailedError (HTTP 500).
+        // raw TypeORM QueryFailedError (HTTP 500). Any OTHER save failure
+        // (DB outage, constraint shape change) must propagate untouched:
+        // the Cloudflare resource stays (the row may still be committed
+        // by a retry) and the caller sees the real error, never a
+        // misleading "hostname already in use" 409. (codeant #460)
+        if (!isUniqueViolationError(error)) {
+            throw error
+        }
         const cleanup = await tryCatch(() => cloudflareService(log).deleteCustomHostname({ cloudflareId: newCloudflare.cloudflareId }))
         if (cleanup.error) {
             log.error({ platform: { id: platformId }, cloudflareId: newCloudflare.cloudflareId, cleanupError: cleanup.error, saveError: error }, 'Failed to clean up Cloudflare custom hostname after a lost upsert race; manual cleanup required')
@@ -194,6 +202,14 @@ async function upsertLocked({ platformId, hostname, log }: { platformId: string,
             },
         })
     }
+}
+
+// TypeORM wraps Postgres unique-index violations in a QueryFailedError whose
+// driver-level code is 23505. Matching on the driver code (not the message)
+// keeps this branch tied to the race-losing case only.
+function isUniqueViolationError(error: unknown): boolean {
+    const candidate = error as { code?: string, driverError?: { code?: string } }
+    return candidate?.code === '23505' || candidate?.driverError?.code === '23505'
 }
 
 function mapCloudflareStatus({ status, sslStatus }: { status: string | undefined, sslStatus: string | undefined }): EmbedSubdomainStatus {

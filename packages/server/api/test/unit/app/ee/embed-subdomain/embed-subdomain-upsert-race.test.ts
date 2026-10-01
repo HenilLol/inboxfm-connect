@@ -228,7 +228,7 @@ describe('embedSubdomainService.upsert race (issue F43)', () => {
         mockFindOneBy.mockResolvedValue(null)
         mockHostnameExists.mockResolvedValue(false)
         mockCreateCustomHostname.mockResolvedValue(activeCfResult)
-        const uniqueViolation = new Error('duplicate key value violates unique constraint "idx_embed_subdomain_hostname"')
+        const uniqueViolation = Object.assign(new Error('duplicate key value violates unique constraint "idx_embed_subdomain_hostname"'), { code: '23505' })
         mockSave.mockRejectedValueOnce(uniqueViolation)
 
         const service = await loadService()
@@ -241,11 +241,31 @@ describe('embedSubdomainService.upsert race (issue F43)', () => {
         expect(mockDeleteCustomHostname.mock.calls[0][0]).toMatchObject({ cloudflareId: 'cf-new' })
     })
 
+    it('a non-unique save error (e.g. DB outage) propagates untouched and never deletes the Cloudflare resource', async () => {
+        // codeant #460: only a save that lost a UNIQUE-INDEX race may take
+        // the conflict branch. Anything else (connection drop, constraint
+        // change) must surface the real error - the row may still commit
+        // on a retry, so the Cloudflare resource must stay.
+        mockFindOneBy.mockResolvedValue(null)
+        mockHostnameExists.mockResolvedValue(false)
+        mockCreateCustomHostname.mockResolvedValue(activeCfResult)
+        const dbOutage = new Error('Connection terminated due to connection timeout')
+        mockSave.mockRejectedValueOnce(dbOutage)
+
+        const service = await loadService()
+        await expect(service.upsert({ platformId: 'platform-1', hostname: 'app.customer.com' }))
+            .rejects
+            .toBe(dbOutage)
+
+        // The Cloudflare resource is NOT deleted and no misleading 409 is thrown.
+        expect(mockDeleteCustomHostname).not.toHaveBeenCalled()
+    })
+
     it('a Cloudflare cleanup failure after a lost save still rethrows the VALIDATION error (never masks it)', async () => {
         mockFindOneBy.mockResolvedValue(null)
         mockHostnameExists.mockResolvedValue(false)
         mockCreateCustomHostname.mockResolvedValue(activeCfResult)
-        mockSave.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'))
+        mockSave.mockRejectedValueOnce(Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' }))
         mockDeleteCustomHostname.mockRejectedValueOnce(new Error('cloudflare down'))
 
         const service = await loadService()
@@ -291,7 +311,7 @@ describe('embedSubdomainService.upsert race (issue F43)', () => {
         mockFindOneBy.mockResolvedValue(null)
         mockHostnameExists.mockResolvedValue(false)
         mockCreateCustomHostname.mockResolvedValue(activeCfResult)
-        mockSave.mockRejectedValueOnce(new Error('duplicate key value violates unique constraint'))
+        mockSave.mockRejectedValueOnce(Object.assign(new Error('duplicate key value violates unique constraint'), { code: '23505' }))
         mockRunExclusive.mockImplementation(async ({ fn: _fn }: { fn: () => Promise<unknown> }) => {
             throw new Error('redlock unavailable')
         })
