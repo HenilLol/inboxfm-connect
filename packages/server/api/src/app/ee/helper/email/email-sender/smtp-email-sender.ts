@@ -35,7 +35,12 @@ export const smtpEmailSender = (log: FastifyBaseLogger): SMTPEmailSender => {
         async send({ emails, platformId, templateData, replyTo }) {
             try {
                 const platform = await getPlatform(platformId, log)
-                const emailSubject = getEmailSubject(templateData.name, templateData.vars)
+                const platformName = platform?.name ?? defaultTheme.websiteName
+                const emailSubject = getEmailSubject({
+                    templateName: templateData.name,
+                    vars: templateData.vars,
+                    platformName,
+                })
                 const senderName = system.get(AppSystemProp.SMTP_SENDER_NAME)
                 const senderEmail = system.get(AppSystemProp.SMTP_SENDER_EMAIL)
     
@@ -124,14 +129,22 @@ const initSmtpClient = (): Transporter => {
     })
 }
 
-const getEmailSubject = (templateName: EmailTemplateData['name'], vars: Record<string, string>): string => {
+export const getEmailSubject = ({
+    templateName,
+    vars,
+    platformName,
+}: {
+    templateName: EmailTemplateData['name']
+    vars: Record<string, string>
+    platformName?: string
+}): string => {
     const templateToSubject: Record<EmailTemplateData['name'], string> = {
-        'invitation-email': `You have been invited to "${vars.projectName}" project ✉️`,
+        'invitation-email': `You have been invited to the "${vars.projectName}" project ✉️`,
         'project-member-added': `Welcome to ${vars.projectName} 🎉`,
         'verify-email': 'Verify your email address ✅',
         'reset-password': 'Reset your password 🔑',
         'issue-created': `[${vars.projectName}] Flow has an issue "${vars.flowName}" ⚠️`,
-        'scim-user-welcome': 'Welcome! Your account has been created 🎉',
+        'scim-user-welcome': `Welcome to ${platformName ?? defaultTheme.websiteName} 🎉`,
         'chat-notification': vars.subject,
     }
 
