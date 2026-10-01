@@ -199,4 +199,25 @@ describe('scimUserService.patch() — platformRole add-operation path spellings'
 
         expect(mockUserUpdate).not.toHaveBeenCalled()
     })
+
+    it('issues no user update and does not throw on a schema-valid no-path add operation', async () => {
+        // RFC 7644 §3.5.2.1: `path` may be omitted when `value` is an object.
+        // The case-insensitivity push read `operation.path` unguarded, so this
+        // schema-valid request crashed with `undefined.toLowerCase()` -> 500.
+        await expect(service.patch({
+            platformId: 'platform-1',
+            userId: 'user-1',
+            request: {
+                schemas: ['urn:ietf:params:scim:api:messages:2.0:PatchOp'],
+                Operations: [
+                    {
+                        op: 'add',
+                        value: { x: 'y' },
+                    },
+                ],
+            } as unknown as ScimPatchRequest,
+        })).resolves.not.toThrow()
+
+        expect(mockUserUpdate).not.toHaveBeenCalled()
+    })
 })

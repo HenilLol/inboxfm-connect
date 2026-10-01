@@ -254,7 +254,10 @@ export const scimUserService = (log: FastifyBaseLogger) => ({
                 // the role once, and ignore every other unknown add path per
                 // RFC 7644 §3.5.2 instead of falling through with an empty
                 // pending-fields object.
-                const path = (operation.path as string).toLowerCase()
+                // RFC 7644 §3.5.2.1 allows omitting `path` when `value` is an
+                // object (the replace branch above handles that form), so an
+                // empty path must stay a no-op here instead of crashing.
+                const path = (operation.path ?? '').toLowerCase()
                 const platformRolePaths = [
                     `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}:platformRole`.toLowerCase(),
                     `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}.platformRole`.toLowerCase(),
