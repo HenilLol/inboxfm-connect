@@ -11,6 +11,7 @@ import { AppConnectionSchema } from '../app-connection/app-connection.entity'
 import { ProjectResourceType } from '../core/security/authorization/common'
 import { securityAccess } from '../core/security/authorization/fastify-security'
 import { syncExecutionRateLimitOptions } from '../core/security/rate-limit'
+import { domainHelper } from '../helper/domain-helper'
 import { system } from '../helper/system/system'
 import { AppSystemProp } from '../helper/system/system-props'
 
@@ -63,7 +64,10 @@ const runtime = new HeadlessRuntime<AppConnectionSchema>({
 
 export const executeController: FastifyPluginAsyncZod = async (fastify) => {
     fastify.post('/', ExecuteRequestOptions, async (request) => {
-        const publicUrl = system.get(AppSystemProp.FRONTEND_URL) || 'http://localhost:3000'
+        // The runtime builds sandbox-internal URLs (store entries, piece bundles) by appending
+        // `v1/...` to this value, so it must carry the `/api` prefix. Raw AP_FRONTEND_URL was the
+        // one call site skipping domainHelper — the mismatch produced `/api/api/...` paths (#440).
+        const publicUrl = await domainHelper.getPublicApiUrl({ path: '' })
         const connectionId = await resolveConnectionId({
             projectId: request.projectId,
             platformId: request.principal.platform.id,
