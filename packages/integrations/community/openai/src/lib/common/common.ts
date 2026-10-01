@@ -85,6 +85,12 @@ export const streamToBuffer = (stream: any) => {
 };
 
 export const calculateTokensFromString = (string: string, model: string) => {
+  // Legacy stored history rows can carry null/undefined content; counting
+  // them as zero tokens keeps estimation (and the reduce loop) stable
+  // instead of throwing on string.length of undefined (issue #379).
+  if (typeof string !== 'string') {
+    return 0;
+  }
   try {
     const encoder = encoding_for_model(model as any);
     const tokens = encoder.encode(string);
@@ -126,10 +132,17 @@ export const reduceContextSize = async (
   // TODO: Summarize context instead of cutoff
   let currentMessages = [...messages];
   while (
-    currentMessages.length > 1 &&
     (await calculateMessagesTokenSize(currentMessages, model)) >
       maxTokens / 1.5 - rolesTokenLength
   ) {
+    if (currentMessages.length <= 1) {
+      // A single message (or none) that still exceeds the budget - which
+      // goes negative when roles alone consume it - can only be dropped
+      // entirely; returning it would ship an oversized context anyway
+      // (issue #379, roles-budget follow-up).
+      currentMessages = [];
+      break;
+    }
     const cutoffSize = Math.max(1, Math.round(currentMessages.length * 0.1));
     currentMessages = currentMessages.slice(cutoffSize);
   }

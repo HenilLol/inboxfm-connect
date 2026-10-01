@@ -82,3 +82,33 @@ describe('exceedsHistoryLimit with roles tokens (issue #379)', () => {
     expect(exceedsHistoryLimit(historyTokens + rolesTokens, UNKNOWN_MODEL, 100)).toBe(true)
   })
 })
+  
+describe('reduceContextSize edge cases (codeant follow-ups)', () => {
+  it('does not throw on legacy stored messages missing content', async () => {
+    // legacy rows can carry undefined/null content; the estimator must not
+    // crash reading string.length on them. Missing content counts as zero
+    // tokens, so a history of only-empty rows is returned as-is.
+    const messages = [
+      { role: 'user' },
+      { role: 'user', content: null },
+    ]
+    const result = await reduceContextSize(messages as any, UNKNOWN_MODEL, 100)
+    expect(result).toEqual(messages as any)
+  })
+
+  it('cuts to zero-ish footprint when roles consume the whole budget', async () => {
+    const messages = buildMessages(20, 40) // 200 tokens
+    const maxTokens = 100 // budget 66.6 - rolesTokenLength
+    // roles consume the entire budget and more: budget goes negative
+    const withRoles = await reduceContextSize(
+      messages,
+      UNKNOWN_MODEL,
+      maxTokens,
+      100
+    )
+    // the loop must not stop at 1 oversized message just because
+    // length > 1 is false - single message that still exceeds a negative
+    // budget should be dropped to empty (or 0-length), not returned as-is
+    expect(withRoles.length).toBe(0)
+  })
+})
