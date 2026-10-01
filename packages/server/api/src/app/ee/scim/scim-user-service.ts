@@ -249,30 +249,39 @@ export const scimUserService = (log: FastifyBaseLogger) => ({
             else if ( op === 'add') {
                 // Providers spell the custom-attribute sub-attribute path both
                 // ways in the wild: RFC 7644 attribute notation (colon-separated)
-                // and a dotted variant. Accept either, validate the role once,
-                // and ignore every other unknown add path per RFC 7644 §3.5.2
-                // instead of falling through with an empty pending-fields object.
-                const path = operation.path as string
-                const isPlatformRolePath = path === `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}:platformRole` || path === `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}.platformRole`
+                // and a dotted variant, and attribute names are case-insensitive
+                // per RFC 7644 §2.1. Match any casing of either spelling, validate
+                // the role once, and ignore every other unknown add path per
+                // RFC 7644 §3.5.2 instead of falling through with an empty
+                // pending-fields object.
+                const path = (operation.path as string).toLowerCase()
+                const platformRolePaths = [
+                    `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}:platformRole`.toLowerCase(),
+                    `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}.platformRole`.toLowerCase(),
+                ]
+                const isPlatformRolePath = platformRolePaths.includes(path)
 
                 if (isPlatformRolePath) {
                     if (!isEnumValue(PlatformRole, operation.value as string)) {
-                        throw new Error(`Invalid platform role: ${operation.value}`)
+                        throw new ScimError(
+                            StatusCodes.BAD_REQUEST,
+                            `Invalid platform role: ${operation.value}`,
+                        )
                     }
                     addOperationFields = addOperationFields ?? {}
                     addOperationFields['platformRole'] = operation.value as PlatformRole
                 }
                 else {
                     switch (path) {
-                        case 'name.givenName':
+                        case 'name.givenname':
                             addOperationFields = addOperationFields ?? {}
                             addOperationFields['firstName'] = operation.value as string
                             break
-                        case 'name.familyName':
+                        case 'name.familyname':
                             addOperationFields = addOperationFields ?? {}
                             addOperationFields['lastName'] = operation.value as string
                             break
-                        case 'externalId':
+                        case 'externalid':
                             addOperationFields = addOperationFields ?? {}
                             addOperationFields['externalId'] = operation.value as string
                             break

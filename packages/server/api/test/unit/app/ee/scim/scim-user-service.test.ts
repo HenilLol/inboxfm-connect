@@ -138,6 +138,46 @@ describe('scimUserService.patch() — platformRole add-operation path spellings'
         ).rejects.toThrow(/Invalid platform role/)
     })
 
+    it('applies a valid platformRole sent via a lowercased path (RFC 7644 §2.1 attribute names are case-insensitive)', async () => {
+        await service.patch({
+            platformId: 'platform-1',
+            userId: 'user-1',
+            request: {
+                schemas: ['urn:ietf:params:scim:api:messages:2.0:PatchOp'],
+                Operations: [
+                    {
+                        op: 'add',
+                        path: `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}:PLATFORMROLE`.toLowerCase(),
+                        value: PlatformRole.OPERATOR,
+                    },
+                ],
+            } as unknown as ScimPatchRequest,
+        })
+
+        expect(mockUserUpdate).toHaveBeenCalledTimes(1)
+        const updateParams = mockUserUpdate.mock.calls[0][0]
+        expect(updateParams.platformRole).toBe(PlatformRole.OPERATOR)
+    })
+
+    it('rejects an invalid platformRole sent via a lowercased path', async () => {
+        await expect(
+            service.patch({
+                platformId: 'platform-1',
+                userId: 'user-1',
+                request: {
+                    schemas: ['urn:ietf:params:scim:api:messages:2.0:PatchOp'],
+                    Operations: [
+                        {
+                            op: 'add',
+                            path: `${SCIM_CUSTOM_USER_ATTRIBUTES_SCHEMA}.PlatformRole`.toLowerCase(),
+                            value: 'super-admin',
+                        },
+                    ],
+                } as unknown as ScimPatchRequest,
+            }),
+        ).rejects.toThrow(/Invalid platform role/)
+    })
+
     it('issues no user update when an add path matches no known attribute', async () => {
         // RFC 7644 §3.5.2: unknown attributes SHALL be ignored. Pre-fix, any
         // unmatched `add` path still initialized the pending-fields object and
