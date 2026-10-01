@@ -51,6 +51,7 @@ export const appConnectionHandler = (_log: FastifyBaseLogger) => ({
                 log.info({ pieceName: connection.pieceName, externalId: connection.externalId }, '[custom-auth-refresh] submitting token refresh job')
                 const engineResponse = await userInteractionWatcher.submitAndWaitForResponse<EngineResponse<ExecuteRefreshTokenAuthResponse>>({
                     piece,
+                    projectId,
                     platformId: connection.platformId,
                     auth: connection.value,
                     jobType: WorkerJobType.EXECUTE_TOKEN_REFRESH,

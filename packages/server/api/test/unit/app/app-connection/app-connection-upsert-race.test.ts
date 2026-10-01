@@ -27,6 +27,11 @@ vi.mock('../../../../src/app/database/redis-connections', () => ({
     distributedLock: () => ({
         runExclusive: mockRunExclusive,
     }),
+    // The engine token mint pulls in jwt-utils, which reads the redis type at
+    // module load to pick its token-revocation backend.
+    redisConnections: {
+        getRedisType: () => 'DEFAULT',
+    },
 }))
 
 vi.mock('../../../../src/app/ee/projects/project-members/project-member.service', () => ({

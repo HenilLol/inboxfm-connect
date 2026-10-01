@@ -1,3 +1,4 @@
+import { ActivepiecesError, ErrorCode, isNil } from '@inboxfm-connect/core-utils'
 import {
     DeleteStoreEntryRequest,
     GetStoreEntryRequest,
@@ -18,7 +19,7 @@ export const storeEntryController: FastifyPluginAsyncZod = async (fastify) => {
             return
         }
         const response = await storeEntryService.upsert({
-            projectId: request.principal.projectId,
+            projectId: requireEngineProjectId({ projectId: request.principal.projectId }),
             request: request.body,
         })
         await reply.status(StatusCodes.OK).send(response)
@@ -27,7 +28,7 @@ export const storeEntryController: FastifyPluginAsyncZod = async (fastify) => {
 
     fastify.get('/', GetRequest, async (request, reply) => {
         const value = await storeEntryService.getOne({
-            projectId: request.principal.projectId,
+            projectId: requireEngineProjectId({ projectId: request.principal.projectId }),
             key: request.query.key,
         })
 
@@ -41,11 +42,23 @@ export const storeEntryController: FastifyPluginAsyncZod = async (fastify) => {
 
     fastify.delete('/', DeleteStoreRequest, async (request) => {
         return storeEntryService.delete({
-            projectId: request.principal.projectId,
+            projectId: requireEngineProjectId({ projectId: request.principal.projectId }),
             key: request.query.key,
         })
     },
     )
+}
+
+const requireEngineProjectId = ({ projectId }: { projectId: string | undefined }) => {
+    if (isNil(projectId)) {
+        throw new ActivepiecesError({
+            code: ErrorCode.AUTHORIZATION,
+            params: {
+                message: 'Engine is not allowed to access this project',
+            },
+        })
+    }
+    return projectId
 }
 
 const CreateRequest =  {

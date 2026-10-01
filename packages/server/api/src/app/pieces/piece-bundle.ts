@@ -171,7 +171,7 @@ type ResolveParams = {
     version?: string
     archiveId?: string
     platformId: string
-    projectId: string
+    projectId: string | undefined
 }
 
 type PieceBundleResolution =

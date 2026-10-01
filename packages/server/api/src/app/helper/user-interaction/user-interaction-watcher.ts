@@ -1,7 +1,8 @@
-import { ActivepiecesError, ErrorCode, PlatformId } from '@inboxfm-connect/core-utils'
+import { ActivepiecesError, ErrorCode, PlatformId, ProjectId } from '@inboxfm-connect/core-utils'
 import { createSandboxRuntime } from '@inboxfm-connect/sandbox'
 import { ApLogger } from '@inboxfm-connect/server-utils'
 import { EngineOperation, EngineOperationType, NetworkMode, PiecePackage, WorkerJobType } from '@inboxfm-connect/shared'
+import { accessTokenManager } from '../../authentication/lib/access-token-manager'
 import { domainHelper } from '../domain-helper'
 import { system } from '../system/system'
 import { AppSystemProp } from '../system/system-props'
@@ -60,7 +61,13 @@ const userInteractionWatcherImpl = {
         const rawInternalApiUrl = await domainHelper.getInternalApiUrl({ path: '' })
         const publicApiUrl = rawPublicApiUrl.endsWith('/') ? rawPublicApiUrl : `${rawPublicApiUrl}/`
         const internalApiUrl = rawInternalApiUrl.endsWith('/') ? rawInternalApiUrl : `${rawInternalApiUrl}/`
-        const engineToken = 'headless'
+        // The sandbox presents this token to engine API routes (e.g. piece bundle
+        // download), which verify it as a real engine principal — placeholder
+        // strings are rejected with 401 by those routes' auth.
+        const engineToken = await accessTokenManager(log).generateEngineToken({
+            projectId: request.projectId,
+            platformId: request.platformId,
+        })
 
         // operationType decides the variant, and the engine re-narrows the operation on
         // receipt (operations/index.ts). This is the single point where the per-job-type
@@ -110,5 +117,6 @@ type UserInteractionRequest = {
     jobType: WorkerJobType
     piece: PiecePackage
     platformId: PlatformId
+    projectId: ProjectId | undefined
     [key: string]: unknown
 }
