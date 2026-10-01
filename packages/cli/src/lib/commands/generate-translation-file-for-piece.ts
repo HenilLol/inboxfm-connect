@@ -93,7 +93,7 @@ export const generateTranslationFileForPieceCommand = new Command('generate-tran
   .requiredOption('--shard-index <shardIndex>', 'Zero-based shard index to process', (value) => parseInt(value, 10))
   .requiredOption('--shard-total <shardTotal>', 'Total number of shards', (value) => parseInt(value, 10))
   .action(async ({shardIndex, shardTotal}: { shardIndex: number; shardTotal: number }) => {
-    const piecesDirectory = join(process.cwd(), 'packages', 'pieces', 'community')
+    const piecesDirectory = join(process.cwd(), 'packages', 'integrations', 'community')
     const pieces = (await findPieces(piecesDirectory)).map(piece => piece.split('/').pop());
     let totalTime = 0
     let indexAcrossAllPieces = 0
