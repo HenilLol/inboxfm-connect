@@ -8,8 +8,15 @@ import chalk from 'chalk'
 import FormData from 'form-data';
 import fs from 'fs';
 import { preparePieceDistForPublish } from './prepare-piece-utils';
+import { findRepoRoot } from './workspace-utils';
 
-export const piecesPath = () => path.join(cwd(), 'packages', 'pieces')
+export const piecesPath = () => {
+    try {
+        return path.join(findRepoRoot(cwd()), 'packages', 'integrations')
+    } catch {
+        return path.join(cwd(), 'packages', 'integrations')
+    }
+}
 export const customPiecePath = () => path.join(piecesPath(), 'custom')
 
 /**
@@ -128,17 +135,23 @@ export async function publishPieceFromFolder(
         }
     }
 }
+const IGNORED_DIRECTORIES = new Set(['node_modules', 'dist', 'framework', 'common'])
+
 async function traverseFolder(folderPath: string): Promise<string[]> {
     const paths: string[] = []
     const directoryExists = await stat(folderPath).catch(() => null)
 
     if (directoryExists && directoryExists.isDirectory()) {
+        const folderName = path.basename(folderPath)
+        if (IGNORED_DIRECTORIES.has(folderName)) {
+            return []
+        }
         const files = await readdir(folderPath)
 
         for (const file of files) {
             const filePath = path.join(folderPath, file)
             const fileStats = await stat(filePath)
-            if (fileStats.isDirectory() && file !== 'node_modules' && file !== 'dist') {
+            if (fileStats.isDirectory() && !IGNORED_DIRECTORIES.has(file)) {
                 paths.push(...await traverseFolder(filePath))
             }
             else if (file === 'package.json') {
