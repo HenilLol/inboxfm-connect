@@ -5,7 +5,12 @@ const activeTasks = new Map<string, cron.ScheduledTask | NodeJS.Timeout>()
 
 function handleError({ id, name, error, onError }: SchedulerTaskErrorContext & { onError?: (ctx: SchedulerTaskErrorContext) => void }): void {
     if (onError) {
-        onError({ id, name, error })
+        try {
+            onError({ id, name, error })
+        }
+        catch (callbackError) {
+            console.error(`[LocalScheduler] Error in onError handler for task "${name}" (${id}):`, callbackError)
+        }
     }
     else {
         console.error(`[LocalScheduler] Error in task "${name}" (${id}):`, error)
