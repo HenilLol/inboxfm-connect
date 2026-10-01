@@ -52,7 +52,8 @@ services:
       target: run
   worker:
     image: inboxfm-connect:local
-    container_name: activepieces-worker
+    # container_name is incompatible with deploy.replicas (a fixed name cannot
+    # be shared by >1 replica); CI's compose validator rejects the combo (issue #398)
     restart: unless-stopped
     depends_on:
       - app

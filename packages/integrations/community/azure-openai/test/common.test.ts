@@ -1,3 +1,4 @@
+
 import {
   calculateMessagesTokenSize,
   exceedsHistoryLimit,
@@ -156,5 +157,26 @@ describe('modelTokenLimit table (issue #377)', () => {
   it('keeps unknown models on the conservative 2048 fallback', () => {
     expect(modelTokenLimit('')).toBe(2048);
     expect(modelTokenLimit('a-custom-finetuned-model')).toBe(2048);
+  });
+});
+
+
+// reduceContextSize keeps cutting while a single cutoff is not enough, and
+// never mutates the caller's array (regression: the pre-#184 code returned
+// the result of one .slice() and let role tokens escape the budget).
+describe('reduceContextSize (regression, #184)', () => {
+  it('keeps cutting while a single cutoff is not enough (discarded recursion regression)', async () => {
+    const messages = buildMessages(100, 40);
+    const maxTokens = 100;
+    const result = await reduceContextSize(messages, MODEL, maxTokens);
+    const tokens = await calculateMessagesTokenSize(result, MODEL);
+    expect(tokens).toBeLessThanOrEqual(maxTokens / 1.5);
+  });
+
+  it('does not mutate the input array', async () => {
+    const messages = buildMessages(20, 40);
+    const snapshot = JSON.parse(JSON.stringify(messages));
+    await reduceContextSize(messages, MODEL, 100);
+    expect(messages).toEqual(snapshot);
   });
 });

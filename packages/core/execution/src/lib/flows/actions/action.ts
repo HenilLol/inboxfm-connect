@@ -235,23 +235,33 @@ function buildBranchConditionValid(addMinLength: boolean) {
 export const ValidBranchCondition = buildBranchConditionValid(true)
 export type ValidBranchCondition = z.infer<typeof ValidBranchCondition>
 
-export const BranchTextCondition = buildBranchTextConditionValid(false)
+export const DraftBranchCondition = buildBranchConditionValid(false)
+export type DraftBranchCondition = z.infer<typeof DraftBranchCondition>
+
+/**
+ * @deprecated Use `ValidBranchCondition` instead. The lax `BranchCondition` schema allowed empty condition values that fail builder validation.
+ * TODO(engine): Remove BranchCondition in next major release after migrating all consumers to ValidBranchCondition.
+ */
+export const BranchCondition = ValidBranchCondition
+export type BranchCondition = ValidBranchCondition
+
+export const BranchTextCondition = buildBranchTextConditionValid(true)
 export type BranchTextCondition = z.infer<typeof BranchTextCondition>
 
-export const BranchNumberCondition = buildBranchNumberConditionValid(false)
+export const BranchNumberCondition = buildBranchNumberConditionValid(true)
 export type BranchNumberCondition = z.infer<typeof BranchNumberCondition>
 
-export const BranchDateCondition = buildBranchDateConditionValid(false)
+export const BranchDateCondition = buildBranchDateConditionValid(true)
 export type BranchDateCondition = z.infer<typeof BranchDateCondition>
 
 export const BranchSingleValueCondition =
-  buildBranchSingleValueConditionValid(false)
+  buildBranchSingleValueConditionValid(true)
 export type BranchSingleValueCondition = z.infer<
   typeof BranchSingleValueCondition
 >
 
 
-export const RouterBranchesSchema = (addMinLength: boolean) =>
+export const RouterBranchesSchema = (addMinLength = true) =>
     z.array(
         z.union([
             z.object({
@@ -273,11 +283,13 @@ export const RouterActionSettings = z.object({
 })
 
 export const RouterActionSettingsWithValidation = z.object({
+    ...commonActionSettings,
     branches: RouterBranchesSchema(true),
     executionType: z.nativeEnum(RouterExecutionType),
 })
 
 export type RouterActionSettings = z.infer<typeof RouterActionSettings>
+export type RouterActionSettingsWithValidation = z.infer<typeof RouterActionSettingsWithValidation>
 
 
 
@@ -369,7 +381,11 @@ export type CodeAction = BaseActionProps & {
 }
 
 
-export const emptyCondition: ValidBranchCondition = {
+/**
+ * Initial empty condition template used as a placeholder when creating a new branch in the canvas.
+ * Note: This represents an unconfigured draft state and will not pass ValidBranchCondition until populated.
+ */
+export const emptyCondition: DraftBranchCondition = {
     firstValue: '',
     secondValue: '',
     operator: BranchOperator.TEXT_CONTAINS,

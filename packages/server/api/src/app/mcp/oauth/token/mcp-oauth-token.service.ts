@@ -49,9 +49,12 @@ export const mcpOAuthTokenService = {
         const rawRefreshToken = generateRefreshToken()
         const hashedRefreshToken = hashRefreshToken(rawRefreshToken)
 
+        const tokenId = apId()
         const tokenRecord: McpOAuthToken = {
-            id: apId(),
+            id: tokenId,
             refreshToken: hashedRefreshToken,
+            previousRefreshToken: null,
+            familyId: tokenId,
             clientId: params.clientId,
             userId: params.userId,
             projectId: params.projectId,
@@ -92,7 +95,7 @@ export const mcpOAuthTokenService = {
         const now = new Date().toISOString()
         const claim = await repo().createQueryBuilder()
             .update()
-            .set({ refreshToken: hashRefreshToken(rawNewRefreshToken), updated: now })
+            .set({ revoked: true, updated: now })
             .where('"refreshToken" = :hashed AND "revoked" = false AND "expiresAt" > :now', { hashed, now })
             .returning('*')
             .execute()
@@ -100,12 +103,32 @@ export const mcpOAuthTokenService = {
         const claimedRows = claim.raw as McpOAuthToken[]
         const record = Array.isArray(claimedRows) && claimedRows.length > 0 ? claimedRows[0] : null
         if (isNil(record)) {
-            // Either unknown/revoked/expired, or lost a race to a concurrent refresh
-            // with the same token - indistinguishable by design (RFC 6749 s5.2).
-            // Reuse of a rotated token lands here too, which limits an attacker's
-            // window to a single refresh cycle; log a hash of the presented token so
-            // operators can correlate replay attempts without logging the secret.
-            params.log?.warn({ clientId: params.clientId, tokenHash: hashed }, '[mcpOAuth] Refresh token rejected: unknown, revoked, expired, or lost a concurrent race')
+            // Reuse detection (#332): a rotated token row keeps a pointer to the hash
+            // it was rotated FROM, so a replay can be attributed to its lineage and the
+            // whole family revoked — N generations deep (RFC 6819 s5.2.2.3). Without
+            // this check a replay was rejected but indistinguishable from an unknown
+            // token, and the family kept authenticating.
+            //
+            // Two deterministic replay signals, race-free (codeant findings on #350):
+            //   a. a successor row already points back at this hash (rotation completed)
+            //   b. this hash exists but its row is revoked (rotation committed — the
+            //      successor may not be saved yet if we lost a concurrent refresh race,
+            //      but the presented token being already-revoked proves replay)
+            // Signal (b) closes the race gap: a concurrent loser previously classified
+            // the replay as an ordinary rejection when the winner had revoked the row
+            // but not yet inserted the successor, leaving the family usable.
+            const [replayed, revokedOriginal] = await Promise.all([
+                repo().findOneBy({ previousRefreshToken: hashed }),
+                repo().findOneBy({ refreshToken: hashed, revoked: true }),
+            ])
+            if (!isNil(replayed) || !isNil(revokedOriginal)) {
+                const familyId = replayed?.familyId ?? revokedOriginal?.familyId
+                await repo().update({ familyId }, { revoked: true, updated: now })
+                params.log?.warn({ clientId: params.clientId, tokenHash: hashed, familyId }, '[mcpOAuth] Refresh token replay detected - revoking the entire token family')
+                throw new OAuthTokenError('invalid_grant', 'Invalid or expired refresh token')
+            }
+            // Either unknown/expired, or the row is simply absent — genuine rejection.
+            params.log?.warn({ clientId: params.clientId, tokenHash: hashed }, '[mcpOAuth] Refresh token rejected: unknown or expired')
             throw new OAuthTokenError('invalid_grant', 'Invalid or expired refresh token')
         }
         if (record.clientId !== params.clientId) {
@@ -115,6 +138,43 @@ export const mcpOAuthTokenService = {
             await repo().update({ id: record.id }, { revoked: true, updated: now })
             params.log?.warn({ clientId: params.clientId, tokenHash: hashed }, '[mcpOAuth] Refresh token presented by the wrong client - rotated token revoked')
             throw new OAuthTokenError('invalid_grant', 'Client mismatch')
+        }
+
+        // Persist the successor as a NEW row carrying the lineage: it points at the
+        // hash it was rotated FROM and inherits the familyId of the first issue, so a
+        // replay of ANY earlier generation resolves to this family (#332). Old rows
+        // keep their refreshToken hash, giving N-deep reuse detection.
+        const successor: McpOAuthToken = {
+            id: apId(),
+            refreshToken: hashRefreshToken(rawNewRefreshToken),
+            previousRefreshToken: hashed,
+            familyId: record.familyId,
+            clientId: record.clientId,
+            userId: record.userId,
+            projectId: record.projectId,
+            platformId: record.platformId,
+            scopes: record.scopes,
+            expiresAt: record.expiresAt,
+            revoked: false,
+            created: now,
+            updated: now,
+        }
+        try {
+            await repo().save(successor)
+        }
+        catch (err) {
+            // Successor persist failed after the claim committed (codeant finding on
+            // #350): the old token would stay revoked with no replacement, forcing
+            // re-auth even though the request never completed. Best-effort restore:
+            // un-revoke the claimed row so a retry can claim it again. If the restore
+            // also fails we stay fail-closed (revoked, no successor) — the safe side.
+            try {
+                await repo().update({ id: record.id }, { revoked: false, updated: now })
+            }
+            catch (restoreErr) {
+                params.log?.error({ err: restoreErr, tokenId: record.id }, '[mcpOAuth] Failed to restore revoked token after successor save failure - staying fail-closed')
+            }
+            throw err
         }
 
         // If signing below throws, the token is already consumed with no replacement

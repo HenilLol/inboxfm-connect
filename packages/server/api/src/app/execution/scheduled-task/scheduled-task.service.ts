@@ -200,6 +200,10 @@ async function claimTaskTick(task: ScheduledTask): Promise<boolean> {
         const next = cronParser.computeNextTick({ cronExpression: task.cronExpression, timezone: task.timezone })
         const diffSeconds = Math.floor((next.getTime() - Date.now()) / 1000)
         ttlSeconds = Math.max(1, Math.min(55, diffSeconds - 1))
+        // An unfireable cron (pre-#389 data) must not kill the tick handler:
+        // the probe inside validateCronExpression blocks new ones, but rows
+        // written before the fix still reach the scheduler — degrade to the
+        // default TTL instead of throwing inside the callback.
     }
     catch {
         ttlSeconds = 55

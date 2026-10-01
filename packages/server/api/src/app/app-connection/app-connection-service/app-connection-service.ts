@@ -4,6 +4,7 @@ import { FastifyBaseLogger } from 'fastify'
 import semver from 'semver'
 import { ArrayContains, Equal, FindOperator, FindOptionsWhere, ILike, In } from 'typeorm'
 import { repoFactory } from '../../core/db/repo-factory'
+import { distributedLock } from '../../database/redis-connections'
 import { projectMemberService } from '../../ee/projects/project-members/project-member.service'
 import { containsSecretManagerReference, secretManagersService } from '../../ee/secret-managers/secret-managers.service'
 import { encryptUtils } from '../../helper/encryption'
@@ -26,6 +27,62 @@ import { appConnectionHandler } from './app-connection.handler'
 import { oauth2Handler } from './oauth2'
 import { oauth2Util } from './oauth2/oauth2-util'
 export const appConnectionsRepo = repoFactory(AppConnectionEntity)
+
+// Upsert race guard (issue F29): app_connection has no unique index on
+// (platformId, externalId, scope), so two overlapping upserts of the same
+// connection both read "no existing row" and insert two rows with different
+// ids. Serialize the whole read-modify-write behind the distributed lock
+// (RedLock runExclusive - the same mutex app-connection.handler already
+// uses for token refresh). Unlike a bare SET NX + re-read, runExclusive
+// makes the loser's lookup happen strictly after the winner's commit, and
+// it releases the lock when the winner finishes instead of holding it for
+// the full TTL. Fail-open on lock unavailability so a Redis outage never
+// blocks connection creation.
+function buildUpsertLockKey({ externalId, scope, platformId, projectIds }: { externalId: string, scope: string, platformId: string, projectIds: string[] | null }): string {
+    // ArrayContains semantics are order-insensitive, so the lock key must be
+    // too: ['p1','p2'] and ['p2','p1'] address the same row and must share one
+    // mutex. Sort + dedupe to get one canonical key per connection.
+    const canonicalProjectIds = isNil(projectIds) ? 'no-projects' : [...new Set(projectIds)].sort().join(',')
+    return ['app-connection', 'upsert', platformId, externalId, scope, canonicalProjectIds].join(':')
+}
+
+async function runUpsertExclusiveOrWithoutLock<T>({ externalId, scope, platformId, projectIds, fn, log }: {
+    externalId: string
+    scope: string
+    platformId: string
+    projectIds: string[] | null
+    fn: () => Promise<T>
+    log: FastifyBaseLogger
+}): Promise<T> {
+    const key = buildUpsertLockKey({ externalId, scope, platformId, projectIds })
+    let fnSettled = false
+    try {
+        return await distributedLock(log).runExclusive({
+            key,
+            timeoutInSeconds: 60,
+            fn: async () => {
+                try {
+                    return await fn()
+                }
+                finally {
+                    // Mark settled on EVERY exit path (throw AND success), not
+                    // just the throw path: a lock-infra error surfacing after a
+                    // successful fn (e.g. a release failure propagating out of
+                    // RedLock's using()) must not take the fail-open branch and
+                    // run fn a second time. (Reviewer hardening, #410 round 2.)
+                    fnSettled = true
+                }
+            },
+        })
+    }
+    catch (error) {
+        if (fnSettled) {
+            throw error
+        }
+        log.warn({ error, lockKey: key }, 'App connection upsert lock unavailable - failing open')
+        return fn()
+    }
+}
 
 export const appConnectionService = (log: FastifyBaseLogger) => ({
     async upsert(params: UpsertParams): Promise<AppConnectionWithoutSensitiveData> {
@@ -63,41 +120,54 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
             ...value,
         })
 
-        const existingConnection = await appConnectionsRepo().findOneBy({
+        // Serialize overlapping upserts of the same connection (issue F29).
+        // runExclusive releases the lock when the winner's upsert commits, so
+        // the loser's lookup below happens strictly after that commit and
+        // finds the winner's row instead of inserting a duplicate.
+        return runUpsertExclusiveOrWithoutLock({
             externalId,
             scope,
             platformId,
-            ...(projectIds ? { projectIds: ArrayContains(projectIds) } : {}),
-        })
-
-        const newId = existingConnection?.id ?? apId()
-        const connection = {
-            displayName,
-            ...spreadIfDefined('ownerId', ownerId),
-            status: status ?? AppConnectionStatus.ACTIVE,
-            value: encryptedConnectionValue,
-            externalId,
-            pieceName,
-            type,
-            id: newId,
-            scope,
             projectIds,
-            platformId,
-            ...spreadIfDefined('metadata', metadata),
-            ...spreadIfDefined('preSelectForNewProjects', preSelectForNewProjects),
-            pieceVersion,
-        }
+            log,
+            fn: async () => {
+                const existingConnection = await appConnectionsRepo().findOneBy({
+                    externalId,
+                    scope,
+                    platformId,
+                    ...(projectIds ? { projectIds: ArrayContains(projectIds) } : {}),
+                })
 
-        await appConnectionsRepo().upsert(connection, ['id'])
+                const newId = existingConnection?.id ?? apId()
+                const connection = {
+                    displayName,
+                    ...spreadIfDefined('ownerId', ownerId),
+                    status: status ?? AppConnectionStatus.ACTIVE,
+                    value: encryptedConnectionValue,
+                    externalId,
+                    pieceName,
+                    type,
+                    id: newId,
+                    scope,
+                    projectIds,
+                    platformId,
+                    ...spreadIfDefined('metadata', metadata),
+                    ...spreadIfDefined('preSelectForNewProjects', preSelectForNewProjects),
+                    pieceVersion,
+                }
 
-        const updatedConnection = await appConnectionsRepo().findOneByOrFail({
-            id: newId,
-            platformId,
-            ...(projectIds ? { projectIds: ArrayContains(projectIds) } : {}),
-            scope,
+                await appConnectionsRepo().upsert(connection, ['id'])
+
+                const updatedConnection = await appConnectionsRepo().findOneByOrFail({
+                    id: newId,
+                    platformId,
+                    ...(projectIds ? { projectIds: ArrayContains(projectIds) } : {}),
+                    scope,
+                })
+                log.info({ connection: { id: newId }, piece: { name: pieceName }, platform: { id: platformId }, isNew: isNil(existingConnection) }, 'App connection upserted')
+                return this.removeSensitiveData(updatedConnection)
+            },
         })
-        log.info({ connection: { id: newId }, piece: { name: pieceName }, platform: { id: platformId }, isNew: isNil(existingConnection) }, 'App connection upserted')
-        return this.removeSensitiveData(updatedConnection)
     },
     async update(params: UpdateParams): Promise<AppConnectionWithoutSensitiveData> {
         const { projectIds, id, request, scope, platformId } = params
@@ -113,6 +183,17 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
             ...(projectIds ? { projectIds: ArrayContains(projectIds) } : {}),
         }
 
+        const existingConnection = await appConnectionsRepo().findOneBy(filter)
+        if (isNil(existingConnection)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.ENTITY_NOT_FOUND,
+                params: {
+                    entityType: 'AppConnection',
+                    entityId: id,
+                },
+            })
+        }
+
         await appConnectionsRepo().update(filter, {
             displayName: request.displayName,
             ...spreadIfDefined('projectIds', request.projectIds),
@@ -120,7 +201,16 @@ export const appConnectionService = (log: FastifyBaseLogger) => ({
             ...spreadIfDefined('preSelectForNewProjects', request.preSelectForNewProjects),
         })
 
-        const updatedConnection = await appConnectionsRepo().findOneByOrFail(filter)
+        const updatedConnection = await appConnectionsRepo().findOneBy(filter)
+        if (isNil(updatedConnection)) {
+            throw new ActivepiecesError({
+                code: ErrorCode.ENTITY_NOT_FOUND,
+                params: {
+                    entityType: 'AppConnection',
+                    entityId: id,
+                },
+            })
+        }
         return this.removeSensitiveData(updatedConnection)
     },
     async testConnection({ id, projectId, platformId }: TestConnectionParams): Promise<TestConnectionResult> {
@@ -427,13 +517,18 @@ async function markConnectionTested({ id, status, testedAt, message }: {
     testedAt: string
     message?: string
 }): Promise<TestConnectionResult> {
-    // Read-then-write: a concurrent refresh, reconnect, or health check may
-    // have recorded a newer status after this test ran — never blindly
-    // overwrite it with a stale result.
-    const current = await appConnectionsRepo().findOneBy({ id })
-    if (!isNil(current) && current.status !== status) {
-        await appConnectionsRepo().update({ id }, { status })
-    }
+    // Plain, unconditional write. A previous revision guarded this with
+    // `current.status !== status` and claimed it avoided clobbering a newer
+    // result, but that condition is true precisely when the stored status
+    // differs - i.e. exactly the stale case - so the guard inverted its own
+    // intent while costing an extra SELECT. `testedAt` is not a persisted
+    // column, so there is nothing to compare an ordering against.
+    //
+    // Consequence, stated plainly: if two health checks race, the slower one
+    // can write its older verdict last. That is accepted - the next check
+    // self-heals the row, and a conditional write would need a persisted
+    // timestamp plus a compare-and-set to be any safer.
+    await appConnectionsRepo().update({ id }, { status })
     return { ok: status === AppConnectionStatus.ACTIVE, status, testedAt, message }
 }
 

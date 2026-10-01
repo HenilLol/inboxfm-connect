@@ -53,7 +53,7 @@ async function listRuns(_projectIds: string[], _afterDate: string | null, _curre
     return []
 }
 
-function mergeRuns(existing: AnalyticsRunsUsageItem[], incoming: AnalyticsRunsUsageItem[]): AnalyticsRunsUsageItem[] {
+export function mergeRuns(existing: AnalyticsRunsUsageItem[], incoming: AnalyticsRunsUsageItem[]): AnalyticsRunsUsageItem[] {
     const map = new Map(existing.map(run => [`${run.flowId}-${run.day}`, { ...run }]))
     for (const run of incoming) {
         const key = `${run.flowId}-${run.day}`
@@ -94,7 +94,7 @@ async function listUsers(platformId: PlatformId): Promise<UserWithMetaInformatio
     })
 }
 
-function filterReportByTimePeriod(
+export function filterReportByTimePeriod(
     report: PlatformAnalyticsReport, 
     timePeriod?: AnalyticsTimePeriod, 
 ): PlatformAnalyticsReport {
@@ -111,7 +111,7 @@ function filterReportByTimePeriod(
     }
 }
 
-function getDateRange(timePeriod: AnalyticsTimePeriod): string {
+export function getDateRange(timePeriod: AnalyticsTimePeriod): string {
     const date = dayjs()
     switch (timePeriod) {
         case AnalyticsTimePeriod.LAST_WEEK:

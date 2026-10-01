@@ -64,6 +64,12 @@ export const DeleteNoteRequest = z.object({
 })
 export const AddNoteRequest = Note.omit({ createdAt: true, updatedAt: true, ownerId: true })
 
+/**
+ * Request to add a branch to a router step.
+ * If `conditions` is omitted, the branch is initialized with an unconfigured `emptyCondition` draft template
+ * to allow interactive authoring in the builder.
+ * If `conditions` are explicitly supplied, they must satisfy `ValidBranchCondition` (non-empty values).
+ */
 export const AddBranchRequest = z.object({
     branchIndex: z.number(),
     stepName: z.string(),

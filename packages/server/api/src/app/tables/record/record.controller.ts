@@ -62,13 +62,15 @@ export const recordController: FastifyPluginAsyncZod = async (fastify) => {
             projectId: request.projectId,
         })
         await reply.status(StatusCodes.OK).send([])
-        await recordSideEffects(fastify.log).handleRecordsEvent({
-            tableId: deletedRecords[0]?.tableId,
-            projectId: request.projectId,
-            records: deletedRecords,
-            logger: request.log,
-            authorization: request.headers.authorization as string,
-        }, 'deleted')
+        if (deletedRecords.length > 0) {
+            await recordSideEffects(fastify.log).handleRecordsEvent({
+                tableId: deletedRecords[0]?.tableId,
+                projectId: request.projectId,
+                records: deletedRecords,
+                logger: request.log,
+                authorization: request.headers.authorization as string,
+            }, 'deleted')
+        }
     })
 
     fastify.get('/', ListRequest, async (request) => {
