@@ -1,5 +1,5 @@
 import { ActivepiecesError, ErrorCode, isNil } from '@inboxfm-connect/core-utils'
-import { FileType, FileLocation } from '@inboxfm-connect/shared'
+import { FileLocation, FileType } from '@inboxfm-connect/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
