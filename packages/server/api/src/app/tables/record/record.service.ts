@@ -276,33 +276,37 @@ export const recordService = {
             return []
         }
 
-        const firstRecord = await recordRepo().findOne({
-            where: { id: ids[0], projectId },
-            select: ['tableId'],
-        })
-        if (isNil(firstRecord)) {
-            throw new ActivepiecesError({
-                code: ErrorCode.ENTITY_NOT_FOUND,
-                params: { entityType: 'Record', entityId: ids[0] },
-            })
-        }
-
+        // Resolve every requested record first: a batch can span multiple tables
+        // (agent-driven MCP ap_delete_records collects ids from ap_find_records
+        // across tables; the REST contract accepts bare ids too). Scoping the
+        // find+delete to ids[0]'s table silently dropped rows belonging to any
+        // other table while still returning success for the whole batch.
         const records = await recordRepo().find({
-            where: { id: In(ids), projectId, tableId: firstRecord.tableId },
+            where: { id: In(ids), projectId },
             relations: ['cells'],
         })
 
-        await recordRepo().delete({
-            id: In(ids),
-            projectId,
-            tableId: firstRecord.tableId,
-        })
+        if (records.length > 0) {
+            const recordsByTable = new Map<string, string[]>()
+            for (const record of records) {
+                const existing = recordsByTable.get(record.tableId) ?? []
+                existing.push(record.id)
+                recordsByTable.set(record.tableId, existing)
+            }
+            for (const [tableId, tableRecordIds] of recordsByTable) {
+                await recordRepo().delete({
+                    id: In(tableRecordIds),
+                    projectId,
+                    tableId,
+                })
+            }
+        }
 
         if (records.length === 0) {
             return []
         }
 
-        return formatRecordsAndFetchField({ records, tableId: firstRecord.tableId, projectId })
+        return formatRecordsAndFetchField({ records, tableId: records[0].tableId, projectId })
     },
 
     async deleteAll({
