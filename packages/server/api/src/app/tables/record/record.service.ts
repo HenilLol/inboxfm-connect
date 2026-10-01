@@ -254,6 +254,10 @@ export const recordService = {
         ids,
         projectId,
     }: DeleteParams): Promise<PopulatedRecord[]> {
+        if (isNil(ids) || ids.length === 0) {
+            return []
+        }
+
         const firstRecord = await recordRepo().findOne({
             where: { id: ids[0], projectId },
             select: ['tableId'],
