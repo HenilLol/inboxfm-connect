@@ -1,14 +1,12 @@
 import { ActivepiecesError, ApId, assertNotNullOrUndefined, ErrorCode, isNil } from '@inboxfm-connect/core-utils'
 import { ALL_PRINCIPAL_TYPES, EnginePrincipal, FileCompression, FileTransportQueryParams, FileType, Principal, PrincipalType } from '@inboxfm-connect/shared'
-import { FastifyBaseLogger } from 'fastify'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
 import { z } from 'zod'
 import { accessTokenManager } from '../authentication/lib/access-token-manager'
 import { securityAccess } from '../core/security/authorization/fastify-security'
-import { distributedLock } from '../database/redis-connections'
 import { AppSystemProp } from '../helper/system/system-props'
-import { fileRepo, fileService } from './file.service'
+import { fileService } from './file.service'
 import { ENGINE_WRITABLE_FILE_TYPES, filesService, fileTransportHeaders } from './files-service'
 import { signedFileTransport } from './signed-file-transport'
 
@@ -32,18 +30,20 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
             const compression = contentEncoding === 'zstd' ? FileCompression.ZSTD : FileCompression.NONE
             const contentLength = Number(request.headers['content-length'] ?? 0)
 
-            const readUrl = await filesService.constructReadUrl({
-                fileId,
-                fileType,
-                platformId: principal.platform.id,
-            })
-            void reply.header(fileTransportHeaders.READ_URL, readUrl)
-
+            // DB storage: the single claim+write happens in the route handler below,
+            // where an ownership rejection (403) reaches the client as a proper
+            // ActivepiecesError body. Nothing to do this early.
             if (!signedFileTransport.shouldRedirectForType(fileType)) {
                 return
             }
-            await assertFileIdAvailableForPrincipal({ fileId, principal, log: request.log })
-            const file = await fileService(request.log).save({
+
+            // S3 signed-URL mode: the engine client uploads the bytes to S3 right
+            // after this redirect, so the row must be claimed before the redirect.
+            // The ownership predicate lives in the write itself (see saveEngineOwned):
+            // this claim may only create the row or rewrite a row already inside the
+            // principal's scope, so a foreign row can neither be re-owned nor leak its
+            // read URL — the claim runs before the read-URL is minted.
+            const file = await fileService(request.log).saveEngineOwned({
                 fileId,
                 projectId: principal.projectId,
                 platformId: principal.platform.id,
@@ -53,6 +53,14 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
                 size: contentLength,
                 data: null,
             })
+
+            const readUrl = await filesService.constructReadUrl({
+                fileId,
+                fileType,
+                platformId: principal.platform.id,
+            })
+            void reply.header(fileTransportHeaders.READ_URL, readUrl)
+
             const redirected = await signedFileTransport.maybeRedirectToS3Put({
                 reply,
                 log: request.log,
@@ -78,8 +86,7 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
 
         const data = request.body as Buffer
         assertNotNullOrUndefined(data, 'body')
-        await assertFileIdAvailableForPrincipal({ fileId, principal, log: request.log })
-        await fileService(request.log).save({
+        const savedFile = await fileService(request.log).saveEngineOwned({
             fileId,
             projectId: principal.projectId,
             platformId: principal.platform.id,
@@ -90,10 +97,14 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
             data,
         })
         const readUrl = await filesService.constructReadUrl({
-            fileId,
+            fileId: savedFile.id,
             fileType,
             platformId: principal.platform.id,
         })
+        // The transport contract mirrors the S3-redirect branch: the read-URL header
+        // is only minted after the ownership claim, so a rejected PUT never leaks a
+        // read capability for a row the caller does not own.
+        void reply.header(fileTransportHeaders.READ_URL, readUrl)
         return reply.status(StatusCodes.OK).send({ fileId, readUrl })
     })
 
@@ -162,81 +173,10 @@ function isInlineSafeMimeType(mimeType: string): boolean {
     return INLINE_SAFE_MIME_TYPES.has(mimeType.split(';')[0].trim().toLowerCase())
 }
 
-
-/**
- * A PUT over a caller-supplied file id must not clobber an existing row owned by
- * another tenant. The engine principal carries the project/platform the token was
- * minted for; an existing row whose scope does not match that principal is someone
- * else's file. New ids (no existing row) pass through untouched.
- */
-/**
- * Guard + save must be one exclusive section per file id: a bare check-then-save
- * lets two concurrent first writes of the same fresh id (from different projects)
- * both pass the absent-row branch, and the later save overwrites the earlier row
- * (codeant finding on #444). The RedLock mutex is the same pattern the
- * app-connection upsert uses (#410). If the lock infrastructure itself fails,
- * the request fails OPEN to the guard-only behavior — availability over a lock
- * outage — but only when fn never ran (fnSettled), never running fn twice.
- */
-async function assertFileIdAvailableForPrincipal({ fileId, principal, log }: AssertFileIdAvailableParams): Promise<void> {
-    return runFilePutExclusiveOrWithoutLock({
-        fileId,
-        log,
-        fn: async () => {
-            const existingFile = await fileRepo().findOneBy({ id: fileId })
-            if (isNil(existingFile)) {
-                return
-            }
-            const sameProject = isNil(existingFile.projectId) || existingFile.projectId === principal.projectId
-            const samePlatform = isNil(existingFile.platformId) || existingFile.platformId === principal.platform.id
-            if (!sameProject || !samePlatform) {
-                throw new ActivepiecesError({
-                    code: ErrorCode.AUTHORIZATION,
-                    params: {
-                        message: 'File id already exists under a different project or platform',
-                    },
-                })
-            }
-        },
-    })
-}
-
-async function runFilePutExclusiveOrWithoutLock({ fileId, fn, log }: RunFilePutExclusiveParams): Promise<void> {
-    const key = `file-put-ownership:${fileId}`
-    let fnSettled = false
-    try {
-        return await distributedLock(log).runExclusive({
-            key,
-            timeoutInSeconds: 30,
-            fn: async () => {
-                try {
-                    await fn()
-                }
-                finally {
-                    fnSettled = true
-                }
-            },
-        })
-    }
-    catch (error) {
-        if (fnSettled) {
-            throw error
-        }
-        log.warn({ error, lockKey: key }, 'File PUT ownership lock unavailable - failing open to the guard-only path')
-        return fn()
-    }
-}
-
-type AssertFileIdAvailableParams = {
+type AuthorizeReadParams = {
+    token: string
     fileId: string
-    principal: EnginePrincipal
-    log: FastifyBaseLogger
-}
-
-type RunFilePutExclusiveParams = {
-    fileId: string
-    fn: () => Promise<void>
-    log: FastifyBaseLogger
+    log: import('fastify').FastifyBaseLogger
 }
 
 async function authorizeRead({ token, fileId, log }: AuthorizeReadParams): Promise<string | undefined> {
@@ -310,10 +250,4 @@ function parseStringHeader(value: unknown): string | undefined {
         return value[0]
     }
     return undefined
-}
-
-type AuthorizeReadParams = {
-    token: string
-    fileId: string
-    log: import('fastify').FastifyBaseLogger
 }
