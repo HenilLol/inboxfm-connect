@@ -25,6 +25,12 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
             const token = (request.query as { token: string }).token
             const principal = await verifyEnginePrincipal(token, request.log)
             const { projectId, platform } = principal
+            // Fail closed on a malformed engine token: the ownership predicate is
+            // only sound when the principal's scope is fully resolved, so an engine
+            // token without a project/platform is a hard error, never a silent
+            // undefined scope.
+            assertNotNullOrUndefined(projectId, 'projectId')
+            assertNotNullOrUndefined(platform, 'platform')
             const fileType = parseFileTypeHeader(request.headers[fileTransportHeaders.TYPE])
             const fileName = parseStringHeader(request.headers[fileTransportHeaders.NAME])
             const contentEncoding = parseStringHeader(request.headers['content-encoding'])
@@ -81,6 +87,9 @@ export const filesController: FastifyPluginAsyncZod = async (app) => {
         const { fileId } = request.params
         const principal = await verifyEnginePrincipal(request.query.token, request.log)
         const { projectId, platform } = principal
+        // Fail closed on a malformed engine token (see the onRequest branch).
+        assertNotNullOrUndefined(projectId, 'projectId')
+        assertNotNullOrUndefined(platform, 'platform')
         const fileType = parseFileTypeHeader(request.headers[fileTransportHeaders.TYPE])
         const fileName = parseStringHeader(request.headers[fileTransportHeaders.NAME])
         const contentEncoding = parseStringHeader(request.headers['content-encoding'])
