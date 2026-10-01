@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import * as path from 'path'
-import { piecesPath, customPiecePath, findPieces, findPiece } from './piece-utils'
+import {
+    piecesPath,
+    customPiecePath,
+    communityPiecePath,
+    findPieces,
+    findPiece,
+    removeStartingSlashes,
+} from './piece-utils'
 import { findRepoRoot } from './workspace-utils'
 
 describe('piece-utils paths and discovery', () => {
@@ -14,6 +21,23 @@ describe('piece-utils paths and discovery', () => {
     it('points customPiecePath to packages/integrations/custom', () => {
         const cp = customPiecePath()
         expect(cp).toBe(path.join(root, 'packages', 'integrations', 'custom'))
+    })
+
+    it('points communityPiecePath to packages/integrations/community', () => {
+        const cp = communityPiecePath()
+        expect(cp).toBe(path.join(root, 'packages', 'integrations', 'community'))
+    })
+
+    it('resolves piece paths identically when cwd is a repository subdirectory', () => {
+        const originalCwd = process.cwd()
+        try {
+            process.chdir(path.join(root, 'packages', 'cli'))
+            expect(piecesPath()).toBe(path.join(root, 'packages', 'integrations'))
+            expect(customPiecePath()).toBe(path.join(root, 'packages', 'integrations', 'custom'))
+            expect(communityPiecePath()).toBe(path.join(root, 'packages', 'integrations', 'community'))
+        } finally {
+            process.chdir(originalCwd)
+        }
     })
 
     it('finds existing integration pieces under packages/integrations', async () => {
@@ -47,5 +71,11 @@ describe('piece-utils paths and discovery', () => {
 
         const commonPieces = await findPieces(path.join(piecesPath(), 'common'))
         expect(commonPieces).toEqual([])
+    })
+
+    it('removeStartingSlashes trims leading forward and backward slashes', () => {
+        expect(removeStartingSlashes('///foo/bar')).toBe('foo/bar')
+        expect(removeStartingSlashes('\\\\\\foo\\bar')).toBe('foo\\bar')
+        expect(removeStartingSlashes('foo/bar')).toBe('foo/bar')
     })
 })

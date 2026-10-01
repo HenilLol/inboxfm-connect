@@ -38,11 +38,7 @@ async function migrateByName({ pieceName, dryRun }: { pieceName: string, dryRun:
 }
 
 async function migrateAll({ dryRun }: { dryRun: boolean }): Promise<void> {
-    const allFolders = await findPieces(piecesPath())
-    const folders = allFolders.filter((folder) => {
-        const name = basename(folder)
-        return name !== 'framework' && name !== 'common'
-    })
+    const folders = await findPieces(piecesPath())
     console.info(chalk.blue(`Migrating ${folders.length} piece(s)${dryRun ? ' (dry run)' : ''}...`))
     for (const folder of folders) {
         reportMigration({ pieceFolder: folder, label: basename(folder), dryRun })

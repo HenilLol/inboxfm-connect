@@ -18,6 +18,7 @@ export const piecesPath = () => {
     }
 }
 export const customPiecePath = () => path.join(piecesPath(), 'custom')
+export const communityPiecePath = () => path.join(piecesPath(), 'community')
 
 /**
  * Finds and returns the paths of specific pieces or all available pieces in a given directory.
@@ -60,7 +61,7 @@ export async function buildPiece(pieceFolder: string): Promise<{ outputFolder: s
 
     await buildPackage(packageJson.name);
 
-    const compiledPath = `packages/${removeStartingSlashes(pieceFolder).split(path.sep + 'packages')[1]}/dist`;
+    const compiledPath = path.join(pieceFolder, 'dist');
 
     await preparePieceDistForPublish(pieceFolder);
 
@@ -73,9 +74,15 @@ export async function buildPiece(pieceFolder: string): Promise<{ outputFolder: s
 }
 
 export async function buildPackage(packageName: string) {
-    await exec(`npx turbo run build --filter=${packageName} --force`);
+    let repoRoot: string;
+    try {
+        repoRoot = findRepoRoot(cwd());
+    } catch {
+        repoRoot = cwd();
+    }
+    await exec(`npx turbo run build --filter=${packageName} --force`, { cwd: repoRoot });
     return {
-        outputFolder: `dist/packages/${packageName}`,
+        outputFolder: path.join(repoRoot, 'dist', 'packages', packageName),
     }
 }
 
@@ -187,6 +194,6 @@ export const assertPieceExists = async (pieceName: string | null) => {
 
 
   export const removeStartingSlashes = (str: string) => {
-    return str.startsWith('/') ? str.slice(1) : str;
+    return str.replace(/^[/\\]+/, '');
   }
 
