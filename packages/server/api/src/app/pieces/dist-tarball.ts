@@ -1,12 +1,13 @@
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
+import { FastifyBaseLogger } from 'fastify'
 
 // Packs a built piece's dist folder into an npm-installable .tgz — ustar entries under a
 // `package/` root, gzip-compressed, matching what `npm pack` emits for the folder. Dependency-free
 // on purpose: the API package carries no tar library and the format subset needed (regular files
 // and directories) is small. Symlinks and anything unexpected are skipped rather than packed.
-export async function packDistToTarball({ distPath }: PackDistParams): Promise<Buffer> {
+export async function packDistToTarball({ distPath, log }: PackDistParams): Promise<Buffer> {
     const entries = await collectEntries({ dirPath: distPath, relativePath: '' })
     const blocks: Buffer[] = []
     for (const entry of entries) {
@@ -17,7 +18,7 @@ export async function packDistToTarball({ distPath }: PackDistParams): Promise<B
         }
         let data = await readFile(entry.absolutePath)
         if (entry.relativePath === 'package.json') {
-            data = rewriteManifestForTarball(data)
+            data = rewriteManifestForTarball(data, log)
         }
         blocks.push(headerBlock({ name: entryName, size: data.length, isDirectory: false }))
         blocks.push(data)
@@ -114,7 +115,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null
 }
 
-function rewriteManifestForTarball(rawContent: Buffer): Buffer {
+function rewriteManifestForTarball(rawContent: Buffer, log?: FastifyBaseLogger): Buffer {
     try {
         const text = rawContent.toString('utf-8')
         const parsed: unknown = JSON.parse(text)
@@ -154,7 +155,8 @@ function rewriteManifestForTarball(rawContent: Buffer): Buffer {
 
         return Buffer.from(JSON.stringify(parsed, null, 2) + '\n', 'utf-8')
     }
-    catch {
+    catch (error) {
+        log?.debug({ error }, 'Failed to rewrite piece manifest for tarball, packing raw content')
         return rawContent
     }
 }
@@ -174,6 +176,7 @@ type TarEntry = {
 
 type PackDistParams = {
     distPath: string
+    log?: FastifyBaseLogger
 }
 
 type CollectEntriesParams = {

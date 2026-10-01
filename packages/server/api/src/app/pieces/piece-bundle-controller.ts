@@ -1,3 +1,5 @@
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import { ActivepiecesError, ErrorCode, isNil } from '@inboxfm-connect/core-utils'
 import { FileLocation, FileType } from '@inboxfm-connect/shared'
 import { FastifyBaseLogger } from 'fastify'
@@ -50,10 +52,18 @@ export const pieceBundleController: FastifyPluginAsyncZod = async (fastify) => {
                 return reply.header('content-type', 'application/gzip').send(data)
             }
             case 'local-dist': {
-                const cacheKey = resolution.distPath
+                const [distStats, manifestStats] = await Promise.all([
+                    stat(resolution.distPath).catch(() => null),
+                    stat(join(resolution.distPath, 'package.json')).catch(() => null),
+                ])
+                const mtime = Math.max(distStats?.mtimeMs ?? 0, manifestStats?.mtimeMs ?? 0)
+                const cacheKey = `${resolution.distPath}:${mtime}`
                 let tarball = getCachedTarball(cacheKey)
                 if (isNil(tarball)) {
-                    tarball = await packDistToTarball({ distPath: resolution.distPath })
+                    tarball = await packDistToTarball({
+                        distPath: resolution.distPath,
+                        log: req.log,
+                    })
                     setCachedTarball(cacheKey, tarball)
                 }
                 return reply.header('content-type', 'application/gzip').send(tarball)
@@ -62,7 +72,9 @@ export const pieceBundleController: FastifyPluginAsyncZod = async (fastify) => {
     })
 }
 
-const MAX_LOCAL_PIECE_CACHE_ENTRIES = 50
+const MAX_LOCAL_PIECE_CACHE_ENTRIES = 20
+const MAX_LOCAL_PIECE_CACHE_BYTES = 50 * 1024 * 1024 // 50 MB
+let totalCacheBytes = 0
 const localPieceTarballCache = new Map<string, Buffer>()
 
 function getCachedTarball(key: string): Buffer | undefined {
@@ -75,16 +87,43 @@ function getCachedTarball(key: string): Buffer | undefined {
 }
 
 function setCachedTarball(key: string, data: Buffer): void {
-    if (localPieceTarballCache.has(key)) {
+    if (data.length > MAX_LOCAL_PIECE_CACHE_BYTES) {
+        return
+    }
+    const existing = localPieceTarballCache.get(key)
+    if (!isNil(existing)) {
+        totalCacheBytes -= existing.length
         localPieceTarballCache.delete(key)
     }
-    else if (localPieceTarballCache.size >= MAX_LOCAL_PIECE_CACHE_ENTRIES) {
+    while (
+        (localPieceTarballCache.size >= MAX_LOCAL_PIECE_CACHE_ENTRIES
+            || totalCacheBytes + data.length > MAX_LOCAL_PIECE_CACHE_BYTES)
+        && localPieceTarballCache.size > 0
+    ) {
         const oldestKey = localPieceTarballCache.keys().next().value
         if (typeof oldestKey === 'string') {
+            const evicted = localPieceTarballCache.get(oldestKey)
+            if (!isNil(evicted)) {
+                totalCacheBytes -= evicted.length
+            }
             localPieceTarballCache.delete(oldestKey)
         }
     }
     localPieceTarballCache.set(key, data)
+    totalCacheBytes += data.length
+}
+
+export const pieceBundleCache = {
+    get: getCachedTarball,
+    set: setCachedTarball,
+    clear: (): void => {
+        localPieceTarballCache.clear()
+        totalCacheBytes = 0
+    },
+    size: (): number => localPieceTarballCache.size,
+    totalBytes: (): number => totalCacheBytes,
+    maxEntries: MAX_LOCAL_PIECE_CACHE_ENTRIES,
+    maxBytes: MAX_LOCAL_PIECE_CACHE_BYTES,
 }
 
 // Scoped by platformId (not projectId) because piece archives are platform-level assets —
@@ -125,7 +164,20 @@ const readPlatformArchiveBytes = async ({
                 },
             })
         }
-        rawData = await s3Helper(log).getFile(s3Key)
+        try {
+            rawData = await s3Helper(log).getFile(s3Key)
+        }
+        catch (error) {
+            log.warn({ error, archiveId, s3Key }, 'Archive object not found in S3')
+            throw new ActivepiecesError({
+                code: ErrorCode.ENTITY_NOT_FOUND,
+                params: {
+                    entityType: 'file',
+                    entityId: archiveId,
+                    message: 'Archive object not found in S3',
+                },
+            })
+        }
     }
     const data = await fileCompressor.decompress({
         data: rawData,
