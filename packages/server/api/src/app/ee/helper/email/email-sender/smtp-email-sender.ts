@@ -55,10 +55,13 @@ export const smtpEmailSender = (log: FastifyBaseLogger): SMTPEmailSender => {
                 })
     
                 const smtpClient = initSmtpClient()
+                // templateData.vars carries the setup links, which embed the
+                // one-time credential (e.g. ?otpcode=...) for verify-email /
+                // reset-password mails. Log the template name only.
                 log.info({
                     emails,
                     platform: { id: platformId },
-                    templateData,
+                    template: templateData.name,
                 }, '[smtpEmailSender#send] sending email')
                 await smtpClient.sendMail({
                     from: `${senderName} <${senderEmail}>`,
