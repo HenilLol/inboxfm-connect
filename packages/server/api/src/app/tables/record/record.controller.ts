@@ -60,6 +60,7 @@ export const recordController: FastifyPluginAsyncZod = async (fastify) => {
         const deletedRecords = await recordService.delete({
             ids: request.body.ids,
             projectId: request.projectId,
+            tableId: request.body.tableId,
         })
         await reply.status(StatusCodes.OK).send([])
         if (deletedRecords.length > 0) {

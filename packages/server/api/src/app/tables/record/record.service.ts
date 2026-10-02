@@ -271,38 +271,61 @@ export const recordService = {
     async delete({
         ids,
         projectId,
+        tableId,
     }: DeleteParams): Promise<PopulatedRecord[]> {
         if (isNil(ids) || ids.length === 0) {
             return []
         }
 
-        const firstRecord = await recordRepo().findOne({
-            where: { id: ids[0], projectId },
-            select: ['tableId'],
-        })
-        if (isNil(firstRecord)) {
-            throw new ActivepiecesError({
-                code: ErrorCode.ENTITY_NOT_FOUND,
-                params: { entityType: 'Record', entityId: ids[0] },
-            })
-        }
-
+        // A caller-declared tableId (the REST DeleteRecordsRequest contract
+        // carries one) pins the whole batch to that table, so the delete target
+        // always matches the table the security middleware resolved the
+        // permission from. When absent (MCP ap_delete_records passes bare ids
+        // collected via ap_find_records, which is single-table per call), the
+        // batch can span tables: resolve every record and group by its actual
+        // table instead of scoping the whole batch to ids[0]'s table, which
+        // silently dropped rows belonging to any other table.
         const records = await recordRepo().find({
-            where: { id: In(ids), projectId, tableId: firstRecord.tableId },
+            where: isNil(tableId) ? { id: In(ids), projectId } : { id: In(ids), projectId, tableId },
             relations: ['cells'],
-        })
-
-        await recordRepo().delete({
-            id: In(ids),
-            projectId,
-            tableId: firstRecord.tableId,
         })
 
         if (records.length === 0) {
             return []
         }
 
-        return formatRecordsAndFetchField({ records, tableId: firstRecord.tableId, projectId })
+        const recordsByTable = new Map<string, RecordSchema[]>()
+        for (const record of records) {
+            const existing = recordsByTable.get(record.tableId) ?? []
+            existing.push(record)
+            recordsByTable.set(record.tableId, existing)
+        }
+
+        // One transaction for the whole batch: a failure partway through must
+        // not leave the caller with a partially deleted batch.
+        await transaction(async (entityManager) => {
+            const repo = recordRepo(entityManager)
+            for (const [recordTableId, tableRecords] of recordsByTable) {
+                await repo.delete({
+                    id: In(tableRecords.map((record) => record.id)),
+                    projectId,
+                    tableId: recordTableId,
+                })
+            }
+        })
+
+        // Fields must be resolved per table: formatting a mixed batch against a
+        // single table's fields would label every other table's cells with the
+        // wrong field names and miss their fields entirely.
+        const fieldsByTable = await fieldService.getAllByTableIds({
+            projectId,
+            tableIds: [...recordsByTable.keys()],
+        })
+        const populatedRecords: PopulatedRecord[] = []
+        for (const [recordTableId, tableRecords] of recordsByTable) {
+            populatedRecords.push(...formatRecords(tableRecords, fieldsByTable.get(recordTableId) ?? []))
+        }
+        return populatedRecords
     },
 
     async deleteAll({
@@ -394,6 +417,7 @@ type UpdateParams = {
 type DeleteParams = {
     ids: string[]
     projectId: string
+    tableId?: string
 }
 
 type DeleteAllParams = {
