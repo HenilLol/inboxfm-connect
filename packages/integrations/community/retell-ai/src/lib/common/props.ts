@@ -90,7 +90,7 @@ interface RetellAiVoice {
 }
 
 // --- Agent Dropdown ---
-export const agentIdDropdown = (displayName:string,required=false)=>  Property.Dropdown({
+export const agentIdDropdown = (displayName: string, required = false) => Property.Dropdown({
   auth: retellAiAuth,
   displayName,
   description: 'Select the Retell AI agent.',
@@ -105,15 +105,19 @@ export const agentIdDropdown = (displayName:string,required=false)=>  Property.D
       };
     }
     try {
-      const agents = await retellAiApiCall<RetellAiAgentListResponse>({
-       auth,
-        method: HttpMethod.GET,
-        url: '/list-agents',
+      const response = await retellAiApiCall<RetellAiAgentListResponse | { items?: RetellAiAgent[] }>({
+        auth,
+        method: HttpMethod.POST,
+        url: '/v2/list-agents',
         body: {
           limit: 100,
-        }
+        },
       });
-      const agentList = Array.isArray(agents) ? agents : [];
+      const agentList = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.items)
+          ? response.items
+          : [];
       if (agentList.length === 0) {
         return {
           disabled: true,
