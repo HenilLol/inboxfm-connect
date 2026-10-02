@@ -1,5 +1,5 @@
 import { Permission, SeekPage } from '@inboxfm-connect/core-utils'
-import { CreateRecordsRequest, DeleteRecordsRequest, ListRecordsRequest, PopulatedRecord, PrincipalType, SERVICE_KEY_SECURITY_OPENAPI, UpdateRecordRequest } from '@inboxfm-connect/shared'
+import { BatchUpdateRecordsRequest, CreateRecordsRequest, DeleteRecordsRequest, ListRecordsRequest, PopulatedRecord, PrincipalType, SERVICE_KEY_SECURITY_OPENAPI, UpdateRecordRequest } from '@inboxfm-connect/shared'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
 import { z } from 'zod'
@@ -30,6 +30,22 @@ export const recordController: FastifyPluginAsyncZod = async (fastify) => {
             logger: request.log,
             authorization: request.headers.authorization as string,
         }, 'created')
+    })
+
+    fastify.post('/batch-update', BatchUpdateRequest, async (request, reply) => {
+        const records = await recordService.batchUpdate({
+            request: request.body,
+            projectId: request.projectId,
+        })
+        await reply.status(StatusCodes.OK).send(records)
+        await recordSideEffects(fastify.log).handleRecordsEvent({
+            tableId: request.body.tableId,
+            projectId: request.projectId,
+            records,
+            logger: request.log,
+            authorization: request.headers.authorization ?? '',
+            agentUpdate: request.body.agentUpdate ?? false,
+        }, 'updated')
     })
 
     fastify.get('/:id', GetRecordByIdRequest, async (request) => {
@@ -101,6 +117,29 @@ const CreateRequest = {
         body: CreateRecordsRequest,
         response: {
             [StatusCodes.CREATED]: z.array(PopulatedRecord),
+        },
+    },
+}
+
+const BatchUpdateRequest = {
+    config: {
+        security: securityAccess.project([PrincipalType.USER, PrincipalType.ENGINE, PrincipalType.SERVICE], Permission.WRITE_TABLE, {
+            type: ProjectResourceType.TABLE,
+            tableName: TableEntity,
+            entitySourceType: EntitySourceType.BODY,
+            lookup: {
+                paramKey: 'tableId',
+                entityField: 'id',
+            },
+        }),
+    },
+    schema: {
+        tags: ['records'],
+        security: [SERVICE_KEY_SECURITY_OPENAPI],
+        description: 'Batch update records',
+        body: BatchUpdateRecordsRequest,
+        response: {
+            [StatusCodes.OK]: z.array(PopulatedRecord),
         },
     },
 }

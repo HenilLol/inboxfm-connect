@@ -27,6 +27,32 @@ export const UpdateRecordRequest = z.object({
 
 export type UpdateRecordRequest = z.infer<typeof UpdateRecordRequest>
 
+export const BatchUpdateRecordItem = z.object({
+    id: z.string(),
+    cells: z.array(z.object({
+        fieldId: z.string(),
+        value: coerceToString,
+    })),
+})
+
+export type BatchUpdateRecordItem = z.infer<typeof BatchUpdateRecordItem>
+
+export const BatchUpdateRecordsRequest = z.object({
+    tableId: z.string(),
+    records: z.array(BatchUpdateRecordItem)
+        .min(1)
+        .max(50)
+        .refine((records) => {
+            const ids = new Set(records.map((r) => r.id))
+            return ids.size === records.length
+        }, {
+            message: 'Duplicate record IDs are not allowed in batch update',
+        }),
+    agentUpdate: z.boolean().optional(),
+})
+
+export type BatchUpdateRecordsRequest = z.infer<typeof BatchUpdateRecordsRequest>
+
 
 export enum FilterOperator {
     EQ = 'eq',

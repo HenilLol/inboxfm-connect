@@ -1,5 +1,5 @@
 import { ActivepiecesError, apId, chunk, Cursor, ErrorCode, isNil, SeekPage } from '@inboxfm-connect/core-utils'
-import { Cell, CreateRecordsRequest, Field, Filter, FilterOperator, PopulatedRecord, TableWebhookEventType, UpdateRecordRequest } from '@inboxfm-connect/shared'
+import { BatchUpdateRecordsRequest, Cell, CreateRecordsRequest, Field, Filter, FilterOperator, PopulatedRecord, TableWebhookEventType, UpdateRecordRequest } from '@inboxfm-connect/shared'
 import { FastifyBaseLogger } from 'fastify'
 import { EntityManager, In, SelectQueryBuilder } from 'typeorm'
 import { repoFactory } from '../../core/db/repo-factory'
@@ -268,6 +268,89 @@ export const recordService = {
         })
     },
 
+    async batchUpdate({
+        projectId,
+        request,
+    }: BatchUpdateParams): Promise<PopulatedRecord[]> {
+        const { tableId, records: recordsToUpdate } = request
+        if (recordsToUpdate.length === 0) {
+            return []
+        }
+
+        const recordIds = recordsToUpdate.map((r) => r.id)
+        const uniqueRecordIds = new Set(recordIds)
+        if (uniqueRecordIds.size !== recordIds.length) {
+            throw new ActivepiecesError({
+                code: ErrorCode.VALIDATION,
+                params: {
+                    message: 'Duplicate record IDs are not allowed in batch update',
+                },
+            })
+        }
+
+        return transaction(async (entityManager: EntityManager) => {
+            const existingRecords = await entityManager
+                .getRepository(RecordEntity)
+                .find({
+                    where: { id: In(recordIds), projectId, tableId },
+                })
+
+            if (existingRecords.length !== recordIds.length) {
+                const existingIds = new Set(existingRecords.map((r) => r.id))
+                const missingId = recordIds.find((id) => !existingIds.has(id))
+                throw new ActivepiecesError({
+                    code: ErrorCode.ENTITY_NOT_FOUND,
+                    params: {
+                        entityType: 'Record',
+                        entityId: missingId ?? recordIds[0],
+                    },
+                })
+            }
+
+            const existingFields = await entityManager
+                .getRepository(FieldEntity)
+                .find({
+                    where: { projectId, tableId },
+                })
+
+            const existingFieldIds = new Set(existingFields.map((f) => f.id))
+            const cellsToUpsert: CellInsertion[] = []
+
+            for (const recordUpdate of recordsToUpdate) {
+                const validCells = recordUpdate.cells.filter((cellData) =>
+                    existingFieldIds.has(cellData.fieldId),
+                )
+                for (const cellData of validCells) {
+                    cellsToUpsert.push({
+                        recordId: recordUpdate.id,
+                        fieldId: cellData.fieldId,
+                        projectId,
+                        value: cellData.value ?? '',
+                        id: apId(),
+                    })
+                }
+            }
+
+            if (cellsToUpsert.length > 0) {
+                await entityManager
+                    .getRepository(CellEntity)
+                    .upsert(cellsToUpsert, ['projectId', 'fieldId', 'recordId'])
+            }
+
+            const updatedRecords = await entityManager
+                .getRepository(RecordEntity)
+                .find({
+                    where: { id: In(recordIds), projectId, tableId },
+                    relations: ['cells'],
+                })
+
+            const updatedRecordsMap = new Map(updatedRecords.map((r) => [r.id, r]))
+            const orderedRecords = recordIds.map((id) => updatedRecordsMap.get(id)).filter((r): r is RecordSchema => !isNil(r))
+
+            return formatRecords(orderedRecords, existingFields)
+        })
+    },
+
     async delete({
         ids,
         projectId,
@@ -412,6 +495,11 @@ type UpdateParams = {
     id: string
     projectId: string
     request: UpdateRecordRequest
+}
+
+type BatchUpdateParams = {
+    projectId: string
+    request: BatchUpdateRecordsRequest
 }
 
 type DeleteParams = {

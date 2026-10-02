@@ -60,6 +60,11 @@ export const I18N_ALLOWLIST: readonly AllowlistEntry[] = [
         msg: 'operator is required when secondValue is provided — pick a comparison operator (e.g. TEXT_CONTAINS, TEXT_EXACTLY_MATCHES, NUMBER_IS_EQUAL_TO).',
         rationale: 'MCP tool execution prompt instruction provided to external LLM clients.',
     },
+    {
+        file: 'packages/core/shared/src/lib/automation/tables/dto/records.dto.ts',
+        msg: 'Duplicate record IDs are not allowed in batch update',
+        rationale: 'Batch update records REST API validation error message returned to developer clients.',
+    },
 ]
 
 export type ZodMessageViolation = {
