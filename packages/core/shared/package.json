@@ -1,6 +1,6 @@
 {
   "name": "@inboxfm-connect/shared",
-  "version": "0.127.0",
+  "version": "0.127.1",
   "type": "commonjs",
   "sideEffects": false,
   "main": "./dist/src/index.js",
