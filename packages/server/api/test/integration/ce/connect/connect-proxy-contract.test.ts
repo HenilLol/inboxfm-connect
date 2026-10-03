@@ -1,10 +1,12 @@
 import { apId } from '@inboxfm-connect/core-utils'
+import { safeHttp } from '@inboxfm-connect/server-utils'
 import {
     AppConnectionScope,
     AppConnectionStatus,
     AppConnectionType,
     ConnectProxyErrorCode,
     OAuth2ConnectionValue,
+    SecretTextConnectionValue,
 } from '@inboxfm-connect/shared'
 import axios from 'axios'
 import { FastifyInstance } from 'fastify'
@@ -52,6 +54,7 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
         }
 
         vi.spyOn(axios, 'create').mockReturnValue(mockAxiosInstance as any)
+        vi.spyOn(safeHttp, 'createAxios').mockReturnValue(mockAxiosInstance as any)
     })
 
     async function seedCustomerConnection({
@@ -61,6 +64,7 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
         pieceName = 'slack',
         token = 'fake_secret_access_token_123',
         status = AppConnectionStatus.ACTIVE,
+        type = AppConnectionType.OAUTH2,
         extraValue = {},
     }: {
         projectId: string
@@ -69,15 +73,23 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
         pieceName?: string
         token?: string
         status?: AppConnectionStatus
+        type?: AppConnectionType
         extraValue?: Record<string, unknown>
     }) {
-        const encrypted = await encryptUtils.encryptObject({
-            type: AppConnectionType.OAUTH2,
-            access_token: token,
-            token_type: 'Bearer',
-            data: extraValue,
-            ...extraValue,
-        } as OAuth2ConnectionValue)
+        const rawValue = type === AppConnectionType.SECRET_TEXT
+            ? ({
+                type: AppConnectionType.SECRET_TEXT,
+                secret_text: token,
+            } as SecretTextConnectionValue)
+            : ({
+                type: AppConnectionType.OAUTH2,
+                access_token: token,
+                token_type: 'Bearer',
+                data: extraValue,
+                ...extraValue,
+            } as OAuth2ConnectionValue)
+
+        const encrypted = await encryptUtils.encryptObject(rawValue)
 
         return appConnectionsRepo().save({
             id: apId(),
@@ -87,7 +99,7 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
             platformId,
             externalId: externalUserId,
             status,
-            type: AppConnectionType.OAUTH2,
+            type,
             scope: AppConnectionScope.PROJECT,
             value: encrypted as any,
             projectIds: [projectId],
@@ -462,6 +474,119 @@ describe('Connect API Proxy Contract & Authorization Suite (#213)', () => {
             expect(response?.statusCode).toBe(StatusCodes.CONFLICT)
             const body = response?.json()
             expect(body.params?.code).toBe(ConnectProxyErrorCode.SSRF_BLOCKED)
+        })
+    })
+
+    describe('4. Expanded Providers (Linear, Airtable, Discord)', () => {
+        it('forwards Linear requests to https://api.linear.app with Authorization: Bearer', async () => {
+            const ctx = await createTestContext(app!)
+            await seedCustomerConnection({
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                pieceName: '@inboxfm-connect/piece-linear',
+                type: AppConnectionType.SECRET_TEXT,
+                token: 'lin_api_test_key_12345',
+            })
+
+            const response = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'linear',
+                method: 'POST',
+                path: '/graphql',
+                body: { query: '{ viewer { id name } }' },
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(mockAxiosInstance.request).toHaveBeenCalledTimes(1)
+            const requestArg = mockAxiosInstance.request.mock.calls[0][0]
+            expect(requestArg.url).toBe('https://api.linear.app/graphql')
+            expect(requestArg.method).toBe('POST')
+            expect(requestArg.headers['Authorization']).toBe('Bearer lin_api_test_key_12345')
+            expect(requestArg.data).toEqual({ query: '{ viewer { id name } }' })
+        })
+
+        it('forwards Airtable requests to https://api.airtable.com/v0 with Authorization: Bearer', async () => {
+            const ctx = await createTestContext(app!)
+            await seedCustomerConnection({
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                pieceName: '@inboxfm-connect/piece-airtable',
+                type: AppConnectionType.SECRET_TEXT,
+                token: 'pat_test_airtable_token_67890',
+            })
+
+            const response = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'airtable',
+                method: 'GET',
+                path: '/meta/bases',
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(mockAxiosInstance.request).toHaveBeenCalledTimes(1)
+            const requestArg = mockAxiosInstance.request.mock.calls[0][0]
+            expect(requestArg.url).toBe('https://api.airtable.com/v0/meta/bases')
+            expect(requestArg.method).toBe('GET')
+            expect(requestArg.headers['Authorization']).toBe('Bearer pat_test_airtable_token_67890')
+        })
+
+        it('forwards Discord requests to https://discord.com/api/v10 with Authorization: Bot', async () => {
+            const ctx = await createTestContext(app!)
+            await seedCustomerConnection({
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                pieceName: '@inboxfm-connect/piece-discord',
+                type: AppConnectionType.SECRET_TEXT,
+                token: 'discord_bot_secret_token_abcdef',
+            })
+
+            const response = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'discord',
+                method: 'GET',
+                path: '/guilds/123456789/channels',
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            expect(mockAxiosInstance.request).toHaveBeenCalledTimes(1)
+            const requestArg = mockAxiosInstance.request.mock.calls[0][0]
+            expect(requestArg.url).toBe('https://discord.com/api/v10/guilds/123456789/channels')
+            expect(requestArg.method).toBe('GET')
+            expect(requestArg.headers['Authorization']).toBe('Bot discord_bot_secret_token_abcdef')
+        })
+
+        it('preserves header isolation and strips caller-supplied Authorization and Host for expanded providers', async () => {
+            const ctx = await createTestContext(app!)
+            await seedCustomerConnection({
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                pieceName: 'discord',
+                type: AppConnectionType.SECRET_TEXT,
+                token: 'legitimate_bot_token',
+            })
+
+            const response = await ctx.post('/v1/connect-proxy/request', {
+                projectId: ctx.project.id,
+                externalUserId: 'cust_alice',
+                provider: 'discord',
+                path: '/users/@me',
+                headers: {
+                    'Authorization': 'Bot malicious_override_token',
+                    'Host': 'evil-spoofed-host.com',
+                    'X-Custom-Trace': 'trace-1234',
+                },
+            })
+
+            expect(response?.statusCode).toBe(StatusCodes.OK)
+            const requestArg = mockAxiosInstance.request.mock.calls[0][0]
+            expect(requestArg.url).toBe('https://discord.com/api/v10/users/@me')
+            // Host must be stripped, Authorization replaced with legitimate decrypted token
+            expect(requestArg.headers['Authorization']).toBe('Bot legitimate_bot_token')
+            expect(requestArg.headers['Host']).toBeUndefined()
+            expect(requestArg.headers['X-Custom-Trace']).toBe('trace-1234')
         })
     })
 })
