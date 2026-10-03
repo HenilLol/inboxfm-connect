@@ -2,7 +2,7 @@ import { AIProviderName, apId, ErrorCode } from '@inboxfm-connect/core-utils'
 import { DefaultProjectRole, PrincipalType } from '@inboxfm-connect/shared'
 import { FastifyInstance } from 'fastify'
 import { StatusCodes } from 'http-status-codes'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { aiProviders } from '../../../../src/app/ai/providers'
 import { generateMockToken } from '../../../helpers/auth'
 import { db } from '../../../helpers/db'
@@ -23,6 +23,10 @@ afterAll(async () => {
 
 beforeEach(async () => {
     ctx = await createTestContext(app!)
+})
+
+afterEach(() => {
+    vi.restoreAllMocks()
 })
 
 describe('AI Providers API', () => {
@@ -51,8 +55,6 @@ describe('AI Providers API', () => {
                 provider: AIProviderName.OPENAI,
             })
             expect(saved).toBeNull()
-
-            validateSpy.mockRestore()
         })
 
         it('rejects invalid credentials with 400 and masked error payload', async () => {
@@ -75,8 +77,6 @@ describe('AI Providers API', () => {
             const serialized = JSON.stringify(body)
             expect(serialized).not.toContain('sk-leak-9988')
             expect(serialized).not.toContain('169.254.169.254')
-
-            validateSpy.mockRestore()
         })
 
         it('preserves strict statelessness and creates no entity in database', async () => {
@@ -115,7 +115,7 @@ describe('AI Providers API', () => {
 
         it('rejects test connection with invalid provider configuration (malformed Azure resourceName)', async () => {
             const response = await ctx.post('/v1/ai-providers/test', {
-                provider: AIProviderName.AZURE_OPENAI,
+                provider: AIProviderName.AZURE,
                 config: {
                     resourceName: 'evil.com#',
                 },
@@ -174,7 +174,7 @@ describe('AI Providers API', () => {
 
         it('rejects Azure provider with host-manipulating resourceName', async () => {
             const response = await ctx.post('/v1/ai-providers', {
-                provider: AIProviderName.AZURE_OPENAI,
+                provider: AIProviderName.AZURE,
                 displayName: 'Malicious Azure',
                 config: {
                     resourceName: 'evil.com#',
