@@ -4,6 +4,7 @@ import { FastifyInstance } from 'fastify'
 import { EntityManager } from 'typeorm'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { fieldService } from '../../../../src/app/tables/field/field.service'
+import { recordService } from '../../../../src/app/tables/record/record.service'
 import { tableRepo, tableService } from '../../../../src/app/tables/table/table.service'
 import { db } from '../../../helpers/db'
 import {
@@ -109,8 +110,11 @@ describe('Table Duplicate Service', () => {
         await db.save('field', fieldTitle)
         await db.save('field', fieldPrice)
 
+        const baseTime = 1700000000000
         const record1 = createMockRecord({ tableId: sourceTable.id, projectId: ctx.project.id })
+        record1.created = new Date(baseTime).toISOString()
         const record2 = createMockRecord({ tableId: sourceTable.id, projectId: ctx.project.id })
+        record2.created = new Date(baseTime + 1000).toISOString()
         await db.save('record', record1)
         await db.save('record', record2)
 
@@ -158,6 +162,17 @@ describe('Table Duplicate Service', () => {
         for (const cell of tableCells) {
             expect([destTitleField.id, destPriceField.id]).toContain(cell.fieldId)
         }
+
+        // Verify deterministic row ordering through recordService.list
+        const destRecordsList = await recordService.list({
+            tableId: duplicated.id,
+            projectId: ctx.project.id,
+        })
+        expect(destRecordsList.data.length).toBe(2)
+        expect(destRecordsList.data[0].cells[destTitleField.id].value).toBe('Widget A')
+        expect(destRecordsList.data[0].cells[destPriceField.id].value).toBe('19.99')
+        expect(destRecordsList.data[1].cells[destTitleField.id].value).toBe('Widget B')
+        expect(destRecordsList.data[1].cells[destPriceField.id].value).toBe('49.99')
     })
 
     it('Test 3 — Sparse cells: should preserve sparse cell structure without inventing missing cells', async () => {

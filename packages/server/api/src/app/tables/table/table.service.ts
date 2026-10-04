@@ -258,15 +258,25 @@ export const tableService = {
         id,
         request,
     }: DuplicateParams): Promise<Table> {
-        const sourceTable = await this.getOneOrThrow({ id, projectId })
-        const trimmedName = request.name?.trim()
-        const destName = trimmedName && trimmedName.length > 0 ? trimmedName : `${sourceTable.name} (Copy)`
-
         return transaction(async (entityManager: EntityManager) => {
             const tableRepo = entityManager.getRepository(TableEntity)
             const fieldRepo = entityManager.getRepository(FieldEntity)
             const recordRepo = entityManager.getRepository(RecordEntity)
             const cellRepo = entityManager.getRepository(CellEntity)
+
+            const sourceTable = await tableRepo.findOneBy({ id, projectId })
+            if (isNil(sourceTable)) {
+                throw new ActivepiecesError({
+                    code: ErrorCode.ENTITY_NOT_FOUND,
+                    params: {
+                        entityType: 'Table',
+                        entityId: id,
+                    },
+                })
+            }
+
+            const trimmedName = request.name?.trim()
+            const destName = trimmedName && trimmedName.length > 0 ? trimmedName : `${sourceTable.name} (Copy)`
 
             const destTableId = apId()
             const destTable = await tableRepo.save({
@@ -318,22 +328,26 @@ export const tableService = {
             }
 
             if (request.includeRecords) {
-                const sourceRecords = await recordRepo.find({
+                const maxRecords = system.getNumberOrThrow(AppSystemProp.MAX_RECORDS_PER_TABLE)
+                const sourceRecordCount = await recordRepo.count({
                     where: { projectId, tableId: sourceTable.id },
-                    relations: ['cells'],
-                    order: { created: 'ASC' },
                 })
 
-                if (sourceRecords.length > 0) {
-                    const maxRecords = system.getNumberOrThrow(AppSystemProp.MAX_RECORDS_PER_TABLE)
-                    if (sourceRecords.length > maxRecords) {
-                        throw new ActivepiecesError({
-                            code: ErrorCode.VALIDATION,
-                            params: {
-                                message: `Max records per table reached: ${maxRecords}`,
-                            },
-                        })
-                    }
+                if (sourceRecordCount > maxRecords) {
+                    throw new ActivepiecesError({
+                        code: ErrorCode.VALIDATION,
+                        params: {
+                            message: `Max records per table reached: ${maxRecords}`,
+                        },
+                    })
+                }
+
+                if (sourceRecordCount > 0) {
+                    const sourceRecords = await recordRepo.find({
+                        where: { projectId, tableId: sourceTable.id },
+                        relations: ['cells'],
+                        order: { created: 'ASC' },
+                    })
 
                     const recordBatches = chunk(sourceRecords, MAX_BATCH_SIZE)
                     const recordIdMap = new Map<string, string>()
@@ -346,6 +360,8 @@ export const tableService = {
                                 id: destRecordId,
                                 tableId: destTableId,
                                 projectId,
+                                created: sourceRecord.created,
+                                updated: sourceRecord.updated,
                             }
                         })
                         await recordRepo.insert(recordInsertions)
@@ -356,6 +372,8 @@ export const tableService = {
                             fieldId: string
                             projectId: string
                             value: string
+                            created: string
+                            updated: string
                         }> = []
 
                         for (const sourceRecord of batch) {
@@ -372,6 +390,8 @@ export const tableService = {
                                         fieldId: destFieldId,
                                         projectId,
                                         value: isNil(cell.value) ? '' : String(cell.value),
+                                        created: cell.created,
+                                        updated: cell.updated,
                                     })
                                 }
                             }
