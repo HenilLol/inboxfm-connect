@@ -1,17 +1,23 @@
-import { ActivepiecesError, apId, ErrorCode, isNil, SeekPage, spreadIfDefined } from '@inboxfm-connect/core-utils'
-import { CreateTableRequest, ExportTableResponse, SharedTemplate, Table, TableDataState, TableImportDataType, TableTemplate, TemplateStatus, TemplateType, UncategorizedFolderId, UpdateTableRequest, UserWithMetaInformation } from '@inboxfm-connect/shared'
+import { ActivepiecesError, apId, chunk, ErrorCode, isNil, SeekPage, spreadIfDefined } from '@inboxfm-connect/core-utils'
+import { CreateTableRequest, DuplicateTableRequest, ExportTableResponse, FieldType, SharedTemplate, Table, TableDataState, TableImportDataType, TableTemplate, TemplateStatus, TemplateType, UncategorizedFolderId, UpdateTableRequest, UserWithMetaInformation } from '@inboxfm-connect/shared'
 import { FastifyBaseLogger } from 'fastify'
-import { ILike, In, IsNull } from 'typeorm'
+import { DeepPartial, EntityManager, ILike, In, IsNull } from 'typeorm'
 import { repoFactory } from '../../core/db/repo-factory'
+import { transaction } from '../../core/db/transaction'
 import { buildPaginator } from '../../helper/pagination/build-paginator'
 import { paginationHelper } from '../../helper/pagination/pagination-utils'
+import { system } from '../../helper/system/system'
+import { AppSystemProp } from '../../helper/system/system-props'
+import { FieldEntity, FieldSchema } from '../field/field.entity'
 import { fieldService } from '../field/field.service'
+import { CellEntity } from '../record/cell.entity'
 import { RecordEntity } from '../record/record.entity'
 import { TableEntity } from './table.entity'
 
 export const tableRepo = repoFactory(TableEntity)
 export const recordRepo = repoFactory(RecordEntity)
 const tablePieceName = '@inboxfm-connect/piece-tables'
+const MAX_BATCH_SIZE = 50
 
 export const tableService = {
     async create({
@@ -247,6 +253,144 @@ export const tableService = {
         return tableRepo().count({ where })
     },
 
+    async duplicate({
+        projectId,
+        id,
+        request,
+    }: DuplicateParams): Promise<Table> {
+        const sourceTable = await this.getOneOrThrow({ id, projectId })
+        const trimmedName = request.name?.trim()
+        const destName = trimmedName && trimmedName.length > 0 ? trimmedName : `${sourceTable.name} (Copy)`
+
+        return transaction(async (entityManager: EntityManager) => {
+            const tableRepo = entityManager.getRepository(TableEntity)
+            const fieldRepo = entityManager.getRepository(FieldEntity)
+            const recordRepo = entityManager.getRepository(RecordEntity)
+            const cellRepo = entityManager.getRepository(CellEntity)
+
+            const destTableId = apId()
+            const destTable = await tableRepo.save({
+                id: destTableId,
+                externalId: apId(),
+                name: destName,
+                projectId,
+                folderId: sourceTable.folderId ?? null,
+                trigger: null,
+                status: null,
+            })
+
+            const sourceFields = await fieldRepo.find({
+                where: { projectId, tableId: sourceTable.id },
+                order: { position: 'ASC' },
+            })
+
+            const fieldIdMap = new Map<string, string>()
+            if (sourceFields.length > 0) {
+                const destFields: DeepPartial<FieldSchema>[] = []
+                for (const field of sourceFields) {
+                    const destFieldId = apId()
+                    fieldIdMap.set(field.id, destFieldId)
+                    if (field.type === FieldType.STATIC_DROPDOWN) {
+                        destFields.push({
+                            id: destFieldId,
+                            externalId: apId(),
+                            tableId: destTableId,
+                            projectId,
+                            name: field.name,
+                            type: FieldType.STATIC_DROPDOWN,
+                            data: field.data,
+                            position: field.position,
+                        })
+                    }
+                    else {
+                        destFields.push({
+                            id: destFieldId,
+                            externalId: apId(),
+                            tableId: destTableId,
+                            projectId,
+                            name: field.name,
+                            type: field.type,
+                            position: field.position,
+                        })
+                    }
+                }
+                await fieldRepo.save(destFields)
+            }
+
+            if (request.includeRecords) {
+                const sourceRecords = await recordRepo.find({
+                    where: { projectId, tableId: sourceTable.id },
+                    relations: ['cells'],
+                    order: { created: 'ASC' },
+                })
+
+                if (sourceRecords.length > 0) {
+                    const maxRecords = system.getNumberOrThrow(AppSystemProp.MAX_RECORDS_PER_TABLE)
+                    if (sourceRecords.length > maxRecords) {
+                        throw new ActivepiecesError({
+                            code: ErrorCode.VALIDATION,
+                            params: {
+                                message: `Max records per table reached: ${maxRecords}`,
+                            },
+                        })
+                    }
+
+                    const recordBatches = chunk(sourceRecords, MAX_BATCH_SIZE)
+                    const recordIdMap = new Map<string, string>()
+
+                    for (const batch of recordBatches) {
+                        const recordInsertions = batch.map((sourceRecord) => {
+                            const destRecordId = apId()
+                            recordIdMap.set(sourceRecord.id, destRecordId)
+                            return {
+                                id: destRecordId,
+                                tableId: destTableId,
+                                projectId,
+                            }
+                        })
+                        await recordRepo.insert(recordInsertions)
+
+                        const cellInsertions: Array<{
+                            id: string
+                            recordId: string
+                            fieldId: string
+                            projectId: string
+                            value: string
+                        }> = []
+
+                        for (const sourceRecord of batch) {
+                            const destRecordId = recordIdMap.get(sourceRecord.id)
+                            if (isNil(destRecordId)) {
+                                continue
+                            }
+                            for (const cell of sourceRecord.cells ?? []) {
+                                const destFieldId = fieldIdMap.get(cell.fieldId)
+                                if (!isNil(destFieldId)) {
+                                    cellInsertions.push({
+                                        id: apId(),
+                                        recordId: destRecordId,
+                                        fieldId: destFieldId,
+                                        projectId,
+                                        value: isNil(cell.value) ? '' : String(cell.value),
+                                    })
+                                }
+                            }
+                        }
+
+                        if (cellInsertions.length > 0) {
+                            const cellBatches = chunk(cellInsertions, MAX_BATCH_SIZE)
+                            for (const cellBatch of cellBatches) {
+                                await cellRepo.insert(cellBatch)
+                            }
+                        }
+                    }
+                }
+            }
+
+            return destTable
+        })
+    },
+
 }
 
 type CreateParams = {
@@ -285,8 +429,6 @@ type ExportTableParams = {
     id: string
 }
 
-
-
 type UpdateParams = {
     projectId: string
     id: string
@@ -303,4 +445,10 @@ type GetTemplateParams = {
     log: FastifyBaseLogger
     userMetadata: UserWithMetaInformation | null
     projectId: string
+}
+
+type DuplicateParams = {
+    projectId: string
+    id: string
+    request: DuplicateTableRequest
 }
