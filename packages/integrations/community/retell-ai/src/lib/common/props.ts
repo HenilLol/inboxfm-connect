@@ -69,7 +69,9 @@ interface RetellAiAgent {
   };
 }
 
-type RetellAiAgentListResponse = RetellAiAgent[];
+type RetellAiAgentListResponse =
+  | { items?: RetellAiAgent[]; has_more?: boolean; pagination_key?: string }
+  | RetellAiAgent[];
 
 interface RetellAiCall {
   call_id: string;
@@ -105,12 +107,17 @@ export const agentIdDropdown = (displayName: string, required = false) => Proper
       };
     }
     try {
-      const response = await retellAiApiCall<RetellAiAgentListResponse | { items?: RetellAiAgent[] }>({
+      const response = await retellAiApiCall<RetellAiAgentListResponse>({
         auth,
         method: HttpMethod.POST,
         url: '/v2/list-agents',
+        queryParams: {
+          limit: '100',
+        },
         body: {
-          limit: 100,
+          filter_criteria: {
+            channel: 'voice',
+          },
         },
       });
       const agentList = Array.isArray(response)

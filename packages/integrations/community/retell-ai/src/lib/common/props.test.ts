@@ -4,29 +4,43 @@ import { agentIdDropdown } from './props';
 import * as clientModule from './client';
 
 describe('agentIdDropdown (Issue #477)', () => {
+  const mockAuth = {
+    props: {
+      apiKey: 'retell_api_key',
+    },
+  };
+
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('calls POST /v2/list-agents with limit 100 and parses array response', async () => {
-    const apiSpy = vi.spyOn(clientModule, 'retellAiApiCall').mockResolvedValue([
-      {
-        agent_id: 'agent_123',
-        agent_name: 'Customer Support Bot',
-        version: 1,
-        is_published: true,
-        voice_id: 'voice_1',
-      },
-    ]);
+  it('calls POST /v2/list-agents with query param limit=100 and body channel=voice, parsing envelope response', async () => {
+    const apiSpy = vi.spyOn(clientModule, 'retellAiApiCall').mockResolvedValue({
+      has_more: false,
+      items: [
+        {
+          agent_id: 'agent_123',
+          agent_name: 'Customer Support Bot',
+          version: 1,
+          is_published: true,
+          voice_id: 'voice_1',
+        },
+      ],
+    });
 
     const dropdown = agentIdDropdown('Agent');
-    const result = await dropdown.options({ auth: 'retell_api_key' as never }, {} as never);
+    const result = await dropdown.options({ auth: mockAuth as never }, {} as never);
 
     expect(apiSpy).toHaveBeenCalledWith({
-      auth: 'retell_api_key',
+      auth: mockAuth,
       method: HttpMethod.POST,
       url: '/v2/list-agents',
-      body: { limit: 100 },
+      queryParams: { limit: '100' },
+      body: {
+        filter_criteria: {
+          channel: 'voice',
+        },
+      },
     });
 
     expect(result).toEqual({
@@ -40,21 +54,19 @@ describe('agentIdDropdown (Issue #477)', () => {
     });
   });
 
-  it('parses { items: [...] } response format from v2 list-agents endpoint', async () => {
-    vi.spyOn(clientModule, 'retellAiApiCall').mockResolvedValue({
-      items: [
-        {
-          agent_id: 'agent_456',
-          agent_name: 'Sales Rep',
-          version: 2,
-          is_published: true,
-          voice_id: 'voice_2',
-        },
-      ],
-    } as never);
+  it('falls back gracefully to array response if returned by API', async () => {
+    vi.spyOn(clientModule, 'retellAiApiCall').mockResolvedValue([
+      {
+        agent_id: 'agent_456',
+        agent_name: 'Sales Rep',
+        version: 2,
+        is_published: true,
+        voice_id: 'voice_2',
+      },
+    ] as never);
 
     const dropdown = agentIdDropdown('Agent');
-    const result = await dropdown.options({ auth: 'retell_api_key' as never }, {} as never);
+    const result = await dropdown.options({ auth: mockAuth as never }, {} as never);
 
     expect(result).toEqual({
       disabled: false,
@@ -68,10 +80,10 @@ describe('agentIdDropdown (Issue #477)', () => {
   });
 
   it('returns placeholder when no agents found', async () => {
-    vi.spyOn(clientModule, 'retellAiApiCall').mockResolvedValue({ items: [] } as never);
+    vi.spyOn(clientModule, 'retellAiApiCall').mockResolvedValue({ items: [], has_more: false } as never);
 
     const dropdown = agentIdDropdown('Agent');
-    const result = await dropdown.options({ auth: 'retell_api_key' as never }, {} as never);
+    const result = await dropdown.options({ auth: mockAuth as never }, {} as never);
 
     expect(result).toEqual({
       disabled: true,
@@ -84,7 +96,7 @@ describe('agentIdDropdown (Issue #477)', () => {
     vi.spyOn(clientModule, 'retellAiApiCall').mockRejectedValue(new Error('Network error'));
 
     const dropdown = agentIdDropdown('Agent');
-    const result = await dropdown.options({ auth: 'retell_api_key' as never }, {} as never);
+    const result = await dropdown.options({ auth: mockAuth as never }, {} as never);
 
     expect(result).toEqual({
       disabled: true,

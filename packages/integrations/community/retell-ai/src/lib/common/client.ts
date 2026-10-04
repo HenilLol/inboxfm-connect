@@ -12,6 +12,7 @@ export type RetellAiApiCallParams = {
   method: HttpMethod;
   url: string;
   body?: unknown;
+  queryParams?: Record<string, string>;
   auth: AppConnectionValueForAuthProperty<typeof retellAiAuth>;
 };
 
@@ -19,6 +20,7 @@ export async function retellAiApiCall<T extends HttpMessageBody>({
   method,
   url,
   body,
+  queryParams,
   auth
 }: RetellAiApiCallParams): Promise<T> {
   const request: HttpRequest = {
@@ -32,6 +34,7 @@ export async function retellAiApiCall<T extends HttpMessageBody>({
       'Content-Type': 'application/json',
       accept: 'application/json'
     },
+    queryParams,
     body
   };
 
