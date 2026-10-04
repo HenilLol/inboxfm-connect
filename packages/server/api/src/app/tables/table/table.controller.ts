@@ -1,5 +1,5 @@
 import { ApId, Permission, SeekPage } from '@inboxfm-connect/core-utils'
-import { CountTablesRequest, CreateTableRequest, ExportTableResponse, ListTablesRequest, PrincipalType, SERVICE_KEY_SECURITY_OPENAPI, SharedTemplate, Table, UpdateTableRequest } from '@inboxfm-connect/shared'
+import { CountTablesRequest, CreateTableRequest, ExportTableResponse, ImportTableRequest, ImportTableResponse, ListTablesRequest, PrincipalType, SERVICE_KEY_SECURITY_OPENAPI, SharedTemplate, Table, UpdateTableRequest } from '@inboxfm-connect/shared'
 import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { StatusCodes } from 'http-status-codes'
 import { z } from 'zod'
@@ -8,6 +8,7 @@ import { securityAccess } from '../../core/security/authorization/fastify-securi
 import { userService } from '../../user/user-service'
 import { recordSideEffects } from '../record/record-side-effects'
 import { recordService } from '../record/record.service'
+import { tableImportService } from './table-import.service'
 import { TableEntity } from './table.entity'
 import { tableService } from './table.service'
 
@@ -96,6 +97,15 @@ export const tablesController: FastifyPluginAsyncZod = async (fastify) => {
             logger: request.log,
             authorization: request.headers.authorization as string,
         }, 'deleted')
+    })
+
+    fastify.post('/:id/import', ImportTableRequestOptions, async (request) => {
+        return tableImportService.importData({
+            projectId: request.projectId,
+            tableId: request.params.id,
+            request: request.body,
+            logger: request.log,
+        })
     })
 }
 
@@ -251,7 +261,7 @@ const ClearTableRequest = {
 const GetTableTemplateRequestOptions = {
     config: {
         security: securityAccess.project(
-            [PrincipalType.USER, PrincipalType.ENGINE, PrincipalType.SERVICE], 
+            [PrincipalType.USER, PrincipalType.ENGINE, PrincipalType.SERVICE],
             Permission.READ_TABLE, {
                 type: ProjectResourceType.TABLE,
                 tableName: TableEntity,
@@ -266,6 +276,31 @@ const GetTableTemplateRequestOptions = {
         }),
         response: {
             [StatusCodes.OK]: SharedTemplate,
+        },
+    },
+}
+
+const ImportTableRequestOptions = {
+    config: {
+        security: securityAccess.project(
+            [PrincipalType.USER, PrincipalType.ENGINE, PrincipalType.SERVICE],
+            Permission.WRITE_TABLE,
+            {
+                type: ProjectResourceType.TABLE,
+                tableName: TableEntity,
+            },
+        ),
+    },
+    schema: {
+        tags: ['tables'],
+        security: [SERVICE_KEY_SECURITY_OPENAPI],
+        description: 'Import CSV or JSON data into a table',
+        params: z.object({
+            id: ApId,
+        }),
+        body: ImportTableRequest,
+        response: {
+            [StatusCodes.OK]: ImportTableResponse,
         },
     },
 }
